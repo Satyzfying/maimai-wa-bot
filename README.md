@@ -1,84 +1,113 @@
-# 🎵 Maimai DX WhatsApp Bot
+# maimai-wa-bot
 
-Bot WhatsApp berbasis Node.js yang berfungsi untuk menarik data profil, rating, dan riwayat bermain (playlog) langsung dari situs resmi **Maimai DX NET** (International & Japan) secara cepat dan efisien.
-
----
-
-## ✨ Fitur Utama
-
-- 🔒 **Login Aman via Bookmarklet (PC Only):** Mengintegrasikan akun Maimai DX NET menggunakan Bookmarklet JavaScript melalui Chat Pribadi (PC/PM) demi keamanan sesi pengguna.
-- ⚡ **Optimasi Sesi & Auto-Login:** Menyimpan session cookies secara lokal (`players.json`) untuk penarikan data instan (hanya 1 request HTTP) dan melakukan auto-relogin transparan jika sesi kedaluwarsa.
-- 📊 **Cari Rating Lengkap (`.rating`):** Menampilkan rating terbaru serta nama panggilan (nickname) pemain.
-- 🎵 **Paginasi Riwayat Bermain (`.recent`):** 
-  - Navigasi interaktif sampai 5 halaman (total 25 lagu terakhir) dengan perintah `.recent page [1-5]`.
-  - Menggunakan cache memori lokal sehingga perpindahan halaman berjalan secara instan (<0.1 detik).
-- ⏱️ **Statistik Detail Judgement (`.recent [1-25]`):**
-  - Menampilkan jumlah Fast/Late, Max Combo, Sync, dan perubahan rating.
-  - Menyajikan tabel detail judgements (Tap, Hold, Slide, Touch, Break) dalam bentuk grid teks monospaced yang rapi.
-- 🎵 **Song Constant Database:** Mendownload database musik resmi dari API Diving Fish untuk menyelaraskan nama lagu dan menampilkan konstanta tingkat kesulitan secara presisi (contoh: `12.8` menggantikan level `12+`).
-- 👥 **Mendukung Grup (Multi-User):** Mendukung penggunaan di dalam grup chat. Data pelacakan diikat berdasarkan nomor WhatsApp unik masing-masing pengirim.
+A WhatsApp bot built with Node.js that retrieves profile data, ratings, and play history (playlog) directly from the official **maimai DX NET** website (International and Japan servers).
 
 ---
 
-## 🛠️ Prasyarat & Teknologi
+## Features
 
-- **Node.js** (versi 18 ke atas)
-- **Library WA:** `@whiskeysockets/baileys` (untuk integrasi WhatsApp Web API)
-- **Terowongan Lokal:** **Ngrok** (diperlukan untuk menerima callback data login dari browser secara lokal)
+- **Secure Login via Bookmarklet:** Links a maimai DX NET account using a JavaScript bookmarklet. The `.login` command is restricted to private chat only to protect session credentials.
+- **Session Caching and Auto-Login:** Persists session cookies locally in `players.json` for fast single-request data retrieval. Automatically re-authenticates using the stored `clal` token when the session expires.
+- **Rating Lookup (`.rating`):** Displays the player's current DX Rating and nickname.
+- **Paginated Play History (`.recent`):** Navigates up to 5 pages of recent play history (25 tracks total) via `.recent page [1-5]`. Page switching is near-instant using an in-memory local cache.
+- **Detailed Score Breakdown (`.recent [1-25]`):** Displays Fast/Late timing counts, Max Combo, Sync status, rating change, and a full judgement table (Tap, Hold, Slide, Touch, Break) formatted as a monospaced grid.
+- **Song Constant Database:** Downloads the music database from the Diving Fish API on startup and uses it to resolve precise difficulty constants (e.g. `12.8` instead of level `12+`).
+- **Multi-User and Group Support:** All user data is keyed by unique WhatsApp JID, allowing multiple users in a group to independently link and query their own accounts.
 
 ---
 
-## 🚀 Panduan Instalasi & Pengaturan
+## Requirements
 
-### 1. Kloning Repositori & Instal Dependensi
-Masuk ke direktori proyek dan jalankan perintah:
+- Node.js v18 or later
+- [`@whiskeysockets/baileys`](https://github.com/WhiskeySockets/Baileys) — WhatsApp Web API library
+- [ngrok](https://ngrok.com/) or equivalent — required to expose the local HTTP server for receiving bookmarklet login callbacks
+
+---
+
+## Installation
+
+### 1. Clone the repository and install dependencies
+
 ```bash
 npm install
 ```
 
-### 2. Jalankan Terowongan Ngrok
-Jalankan ngrok pada port lokal 3000 untuk mendapatkan URL publik HTTPS:
+### 2. Start an ngrok tunnel
+
+The bot runs a local HTTP server on port 3000 to receive login data from the browser bookmarklet. Expose it with:
+
 ```bash
 ngrok http 3000
 ```
-Salin URL HTTPS yang dihasilkan oleh ngrok (contoh: `https://abcd-123-45.ngrok-free.dev`).
 
-### 3. Konfigurasi Bot
-Buka berkas `config.json` di root folder dan sesuaikan isinya:
+Copy the generated HTTPS forwarding URL (e.g. `https://abcd-123-45.ngrok-free.dev`).
+
+### 3. Configure the bot
+
+Edit `config.json` in the project root:
+
 ```json
 {
-  "publicUrl": "https://ganti-dengan-url-ngrok-kamu.ngrok-free.dev",
+  "publicUrl": "https://your-ngrok-url.ngrok-free.dev",
   "port": 3000
 }
 ```
 
 ---
 
-## 🔌 Cara Menjalankan Bot
+## Running the Bot
 
-1. Jalankan bot melalui terminal:
-   ```bash
-   node index.js
-   ```
-2. Terminal akan menampilkan **QR Code**. Pindai (scan) QR Code tersebut menggunakan fitur **Linked Devices / Perangkat Tertaut** pada aplikasi WhatsApp di ponselmu.
-3. Setelah muncul pesan `Bot WhatsApp Berhasil Terhubung!`, bot siap digunakan.
+```bash
+node index.js
+```
+
+On first run, a QR code will appear in the terminal. Scan it using **Linked Devices** in the WhatsApp mobile app. Once connected, the bot is ready to accept commands.
+
+To reset the WhatsApp session (e.g. after a 401 disconnect error), delete the session directory and restart:
+
+```bash
+rm -rf auth_info_baileys
+node index.js
+```
 
 ---
 
-## 📖 Panduan Penggunaan Perintah (Commands)
+## Commands
 
-| Perintah | Tempat Jalankan | Deskripsi |
+| Command | Context | Description |
 | :--- | :--- | :--- |
-| `.login` | **Chat Pribadi saja** | Memulai proses integrasi akun Maimai DX NET dan menghasilkan OTP & link bookmarklet. |
-| `.rating` | Chat Pribadi / Grup | Menampilkan data rating Maimai DX NET milikmu saat ini. |
-| `.recent` | Chat Pribadi / Grup | Menampilkan daftar 5 riwayat lagu terbaru (Halaman 1). |
-| `.recent page [1-5]` | Chat Pribadi / Grup | Navigasi berpindah halaman riwayat lagu (maksimal 25 lagu). |
-| `.recent [1-25]` | Chat Pribadi / Grup | Menampilkan rincian detail judgement & statistik timing dari lagu pada indeks tersebut. |
-| `.ping` | Chat Pribadi / Grup | Mengecek status aktif (uptime) bot. |
+| `.login` | Private chat only | Initiates the maimai DX NET account linking flow. Generates a one-time OTP and bookmarklet instructions. |
+| `.rating` | Private chat / Group | Displays the player's current DX Rating and nickname. |
+| `.recent` | Private chat / Group | Displays the 5 most recent play records (page 1 of 5). |
+| `.recent page [1-5]` | Private chat / Group | Navigates to the specified page of recent play history (5 tracks per page, up to 25 total). Shorthand: `.recent p [1-5]`. |
+| `.recent [1-25]` | Private chat / Group | Displays the full score breakdown and judgement grid for the play record at the given index. |
+| `.ping` | Private chat / Group | Checks bot uptime and responsiveness. |
 
 ---
 
-## 🔒 Catatan Keamanan Sesi
+## Project Structure
 
-- Perintah `.login` sengaja dibatasi hanya bisa dijalankan di **Chat Pribadi** bot. Hal ini demi menjaga privasi tautan login dan mencegah nomor WhatsApp bot terkena pemblokiran (*banned*) akibat menyebarkan tautan JavaScript di dalam grup.
-- Semua cookie sensitif dienkripsi dan disimpan secara lokal pada mesin hosting bot ini dan tidak dibagikan ke server luar.
+```
+maimai-wa-bot/
+├── commands/
+│   ├── login.js       # Account linking flow
+│   ├── ping.js        # Uptime check
+│   ├── rating.js      # DX Rating lookup
+│   └── recent.js      # Play history and score detail
+├── utils/
+│   ├── scraper.js     # HTTP scraper for maimai DX NET
+│   └── music.js       # Song constant database loader (Diving Fish)
+├── auth_info_baileys/ # WhatsApp session state (auto-generated, gitignored)
+├── players.json       # Per-user account data (auto-generated, gitignored)
+├── music_data.json    # Song database cache (auto-generated, gitignored)
+├── config.json        # Bot configuration (publicUrl, port)
+├── handler.js         # Message dispatcher and command router
+└── index.js           # Entry point, WA socket, and HTTP server
+```
+
+---
+
+## Security Notes
+
+- The `.login` command is intentionally blocked in group chats to prevent the login URL and bookmarklet script from being exposed publicly, and to reduce the risk of the bot number being flagged for spam.
+- All sensitive cookies (`clal`, session tokens) are stored locally on the hosting machine and are never transmitted to any third-party service.

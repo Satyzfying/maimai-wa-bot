@@ -26,6 +26,15 @@ module.exports = {
             return;
         }
 
+        // Cek jika perintah dijalankan di dalam grup
+        const isGroup = from.endsWith('@g.us');
+        if (isGroup) {
+            await sock.sendMessage(from, {
+                text: '⚠️ *Akses Ditolak!*\n\nPerintah *.login* hanya dapat dijalankan di *Chat Pribadi (PC/PM)* bot demi keamanan dan kenyamanan bersama.\nSilakan hubungi nomor bot ini secara pribadi dan ketik *.login*.'
+            });
+            return;
+        }
+
         // Generate 6-digit OTP acak
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         const sender = msg.key.participant || msg.key.remoteJid;

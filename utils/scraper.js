@@ -24,6 +24,19 @@ class CookieJar {
     }
 }
 
+// Helper untuk mendekode entitas HTML (seperti &#039;, &amp;, dll)
+function decodeHtmlEntities(str) {
+    if (!str) return '';
+    return str
+        .replace(/&amp;/g, '&')
+        .replace(/&#039;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ');
+}
+
 // Fallback User-Agent jika tidak disediakan
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
 
@@ -197,7 +210,7 @@ async function fetchMaimaiProfile(clal, savedSessionCookie, userAgent, preferred
             const nameMatch = html.match(/<div[^>]*class="[^"]*name_block[^"]*"[^>]*>([\s\S]*?)<\/div>/);
             let nickname = '';
             if (nameMatch) {
-                nickname = nameMatch[1].replace(/<[^>]*>/g, '').trim();
+                nickname = decodeHtmlEntities(nameMatch[1].replace(/<[^>]*>/g, '').trim());
             }
 
             // Ekstraksi Rating
@@ -293,7 +306,7 @@ async function fetchMaimaiRecent(clal, savedSessionCookie, userAgent, preferredD
                 let title = '';
                 const titleMatch = block.match(/class="[^"]*basic_block[^"]*break[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>\s*([\s\S]*?)\s*<\/div>/);
                 if (titleMatch) {
-                    title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
+                    title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
                 }
 
                 // 5. Type (SD / DX)
@@ -367,7 +380,7 @@ async function fetchMaimaiRecentDetail(clal, idx, savedSessionCookie, userAgent,
             let title = '';
             const titleMatch = html.match(/class="[^"]*basic_block[^"]*break[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>\s*([\s\S]*?)\s*<\/div>/);
             if (titleMatch) {
-                title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
+                title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
             }
 
             // 2. Difficulty

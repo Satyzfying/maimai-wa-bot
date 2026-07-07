@@ -21,7 +21,7 @@ module.exports = {
 
         if (!publicUrl || publicUrl.includes('ganti-dengan-url-ngrok')) {
             await sock.sendMessage(from, { 
-                text: '⚠️ *Bot belum terkonfigurasi dengan benar.*\n\nAdministrator harus mengisi URL publik (ngrok) di file `config.json` terlebih dahulu.' 
+                text: '*Konfigurasi bot belum lengkap.*\n\nAdministrator harus mengisi URL publik (ngrok) di file `config.json` terlebih dahulu.' 
             });
             return;
         }
@@ -30,7 +30,7 @@ module.exports = {
         const isGroup = from.endsWith('@g.us');
         if (isGroup) {
             await sock.sendMessage(from, {
-                text: '⚠️ *Akses Ditolak!*\n\nPerintah *.login* hanya dapat dijalankan di *Chat Pribadi (PC/PM)* bot demi keamanan dan kenyamanan bersama.\nSilakan hubungi nomor bot ini secara pribadi dan ketik *.login*.'
+                text: '*Akses Ditolak.*\n\nPerintah *.login* hanya dapat dijalankan melalui *Chat Pribadi (PC/PM)* demi keamanan data kredensial.\nSilakan kirim perintah *.login* langsung ke chat pribadi bot ini.'
             });
             return;
         }
@@ -60,7 +60,7 @@ module.exports = {
         // Bookmarklet loader standar komunitas (memanggil login.js dari Gist)
         const jsCode = `javascript:void(function(d){var s=d.createElement('script');s.src='https://gistcdn.githack.com/beer-psi/0eb8d3e50ae753388a6d4a4af5678a2e/raw/ede9859c40741d4dad49a035857b30a3e21c5dce/login.js';d.body.append(s)})(document)`;
 
-        let responseText = `🔑 *ALUR INTEGRASI AKUN MAIMAI DX*\n\n`;
+        let responseText = `*PANDUAN MENGHUBUNGKAN AKUN MAIMAI DX*\n\n`;
         responseText += `*Step 1:*\n`;
         responseText += `Buka website *Maimai DX NET* di browser dalam *Incognito Mode (Tab Samaran)*, lalu login menggunakan SEGA ID Anda.\n\n`;
         responseText += `*Step 2:*\n`;

@@ -38,8 +38,9 @@ const PREFIX = '.';
  */
 async function handleMessage(sock, m, otps) {
     try {
+        if (m.type !== 'notify') return; // Abaikan event selain pesan baru (reaksi, polling, status, dll)
         const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return; // Abaikan jika pesan kosong atau dari bot sendiri
+        if (!msg || !msg.message || msg.key.fromMe) return; // Abaikan jika pesan kosong atau dari bot sendiri
 
         const from = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
@@ -79,7 +80,7 @@ async function handleMessage(sock, m, otps) {
                 } catch (cmdError) {
                     console.error(`[CommandHandler] Error saat mengeksekusi command "${commandName}":`, cmdError);
                     await sock.sendMessage(from, { 
-                        text: `⚠️ Terjadi error saat mengeksekusi perintah *${commandName}*:\n_${cmdError.message}_` 
+                        text: `Terjadi kesalahan saat mengeksekusi perintah *${commandName}*:\n_${cmdError.message}_` 
                     });
                 }
             }

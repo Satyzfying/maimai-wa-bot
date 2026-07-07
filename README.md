@@ -81,7 +81,11 @@ node index.js
 | `.recent` | Private chat / Group | Displays the 5 most recent play records (page 1 of 5). |
 | `.recent page [1-5]` | Private chat / Group | Navigates to the specified page of recent play history (5 tracks per page, up to 25 total). Shorthand: `.recent p [1-5]`. |
 | `.recent [1-25]` | Private chat / Group | Displays the full score breakdown and judgement grid for the play record at the given index. |
+| `.top` (or `.b50`) | Private chat / Group | Displays the player's Best 50 DX Rating (Best 15 new + Best 35 old). |
+| `.top old [page]` | Private chat / Group | Displays the Best 35 (old songs) paginated. |
+| `.top refresh` | Private chat / Group | Force-refreshes the Best 50 data from SEGA (bypasses local cache). |
 | `.ping` | Private chat / Group | Checks bot uptime and responsiveness. |
+| `.help` (or `.menu`) | Private chat / Group | Displays the help menu with all available commands and maintenance notes. |
 
 ---
 

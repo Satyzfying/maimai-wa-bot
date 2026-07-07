@@ -38,7 +38,7 @@ module.exports = {
         } else {
             // Skenario 3: Input teks biasa/username langsung (misal: .rating Satyz)
             await sock.sendMessage(from, { 
-                text: '⚠️ *Format Salah!*\n\n• Untuk melihat rating *sendiri*, ketik:\n  *.rating*\n• Untuk melihat rating *orang lain*, silakan tag/mention orangnya:\n  *.rating @NamaTeman*\n\n_Catatan: Pengguna yang dicari wajib sudah login lewat perintah .login_' 
+                text: '*Format Salah.*\n\nUntuk melihat rating sendiri, ketik:\n*.rating*\nUntuk melihat rating orang lain, silakan tag/mention:\n*.rating @NamaTeman*\n\n_Catatan: Pengguna wajib sudah menghubungkan akun lewat perintah .login_' 
             });
             return;
         }
@@ -49,12 +49,12 @@ module.exports = {
         if (!profile) {
             if (isSelf) {
                 await sock.sendMessage(from, { 
-                    text: '⚠️ *Kamu belum menghubungkan akun Maimai DX NET!*\n\nSilakan login terlebih dahulu untuk menghubungkan akun.\nKetik perintah:\n*.login*' 
+                    text: '*Akun Maimai DX NET belum terhubung.*\n\nSilakan hubungkan akun dengan mengetik perintah:\n*.login*' 
                 });
             } else {
                 const cleanNumber = targetJid.split('@')[0];
                 await sock.sendMessage(from, { 
-                    text: `❌ Pengguna *@${cleanNumber}* belum menghubungkan akun Maimai mereka di bot ini.`,
+                    text: `Pengguna *@${cleanNumber}* belum menghubungkan akun Maimai DX NET.`,
                     mentions: [targetJid]
                 });
             }
@@ -104,14 +104,14 @@ module.exports = {
         }
 
         // 4. Kirim respon profil rating
-        let responseText = `👤 *PLAYER PROFILE Maimai DX*\n\n`;
+        let responseText = `*PROFIL PEMAIN MAIMAI DX*\n\n`;
         responseText += `• *Nickname:* ${nickname}\n`;
         responseText += `• *DX Rating:* ${rating}\n\n`;
         responseText += `_Terakhir diperbarui: ${formattedDate}_\n`;
         responseText += `_Data disinkronkan langsung dari Maimai DX NET_\n`;
         
         if (sessionExpired && isSelf) {
-            responseText += `\n⚠️ *Sesi login kedaluwarsa.*\n_Ketik *.login* untuk menyegarkan sesi agar rating ter-update otomatis._`;
+            responseText += `\n*Sesi login kedaluwarsa.*\n_Ketik *.login* untuk memperbarui sesi agar data tersinkronisasi otomatis._`;
         }
 
         await sock.sendMessage(from, { text: responseText });

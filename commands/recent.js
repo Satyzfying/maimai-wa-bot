@@ -57,7 +57,7 @@ module.exports = {
         const profile = players[senderJid];
         if (!profile || !profile.clal) {
             await sock.sendMessage(from, {
-                text: '⚠️ *Kamu belum menghubungkan akun Maimai DX NET!*\n\nSilakan login terlebih dahulu untuk menghubungkan akun.\nKetik perintah:\n*.login*'
+                text: '*Akun Maimai DX NET belum terhubung.*\n\nSilakan hubungkan akun dengan mengetik perintah:\n*.login*'
             });
             return;
         }
@@ -75,7 +75,7 @@ module.exports = {
             isPageRequest = true;
             pageNum = parseInt(args[1], 10);
             if (isNaN(pageNum) || pageNum < 1 || pageNum > 5) {
-                await sock.sendMessage(from, { text: '⚠️ *Halaman Tidak Valid!*\n\nMasukkan halaman 1 sampai 5.\nContoh: *.recent page 2* atau *.recent p 2*' });
+                await sock.sendMessage(from, { text: '*Halaman tidak valid.*\n\nMasukkan halaman 1 sampai 5.\nContoh: *.recent page 2* atau *.recent p 2*' });
                 return;
             }
         }
@@ -87,12 +87,12 @@ module.exports = {
 
                 // Jika data cache di memori kosong, ambil langsung dari SEGA
                 if (!playlogs) {
-                    await sock.sendMessage(from, { text: '🔍 _Mengambil riwayat bermain terbaru Anda dari Maimai DX NET..._' });
+                    await sock.sendMessage(from, { text: '_Mengambil riwayat bermain dari Maimai DX NET..._' });
                     const result = await fetchMaimaiRecent(clal, profile.sessionCookie, profile.userAgent, profile.domain);
                     playlogs = result.playlogs;
 
                     if (playlogs.length === 0) {
-                        await sock.sendMessage(from, { text: '📭 Riwayat bermain Anda kosong di Maimai DX NET.' });
+                        await sock.sendMessage(from, { text: 'Riwayat bermain tidak ditemukan.' });
                         return;
                     }
 
@@ -111,11 +111,11 @@ module.exports = {
                 const endIndex = Math.min(startIndex + itemsPerPage, playlogs.length);
 
                 if (startIndex >= playlogs.length) {
-                    await sock.sendMessage(from, { text: `⚠️ Halaman ${pageNum} tidak ditemukan (Hanya ada ${Math.ceil(playlogs.length / itemsPerPage)} halaman).` });
+                    await sock.sendMessage(from, { text: `Halaman ${pageNum} tidak ditemukan (maksimal ${Math.ceil(playlogs.length / itemsPerPage)} halaman).` });
                     return;
                 }
 
-                let responseText = `🎵 *RIWAYAT BERMAIN MAIMAI DX (Halaman ${pageNum}/5)*\n`;
+                let responseText = `*RIWAYAT BERMAIN MAIMAI DX (Halaman ${pageNum}/5)*\n`;
                 responseText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
                 for (let i = startIndex; i < endIndex; i++) {
@@ -128,14 +128,14 @@ module.exports = {
                     responseText += `${i + 1}. *${log.title}* - ${difficultyDisplay} ${constantDisplay} (${log.achievement})\n`;
                 }
 
-                responseText += `\n💡 *Ketik ".recent page [2-5]" (atau ".recent p [2-5]") untuk halaman lain.*`;
-                responseText += `\n💡 *Ketik ".recent [1-25]" untuk melihat detail rincian skor lagu!*`;
+                responseText += `\nKetik ".recent page [2-5]" untuk berpindah halaman.`;
+                responseText += `\nKetik ".recent [1-25]" untuk melihat detail rincian skor.`;
                 
                 await sock.sendMessage(from, { text: responseText });
 
             } catch (err) {
                 console.error('[Command Recent] Error mengambil recent list:', err);
-                await sock.sendMessage(from, { text: `❌ *Gagal mengambil riwayat bermain:*\n_${err.message}_` });
+                await sock.sendMessage(from, { text: `*Gagal mengambil riwayat bermain:*\n_${err.message}_` });
             }
             return;
         }
@@ -148,7 +148,7 @@ module.exports = {
 
         if (isNaN(indexInput) || indexInput < 1 || indexInput > maxLimit) {
             await sock.sendMessage(from, { 
-                text: `⚠️ *Indeks Tidak Valid!*\n\nMasukkan angka indeks lagu yang terdaftar (1 sampai ${maxLimit}).\nContoh: *.recent 1*` 
+                text: `*Indeks tidak valid.*\n\nMasukkan indeks lagu yang terdaftar (1 sampai ${maxLimit}).\nContoh: *.recent 1*` 
             });
             return;
         }
@@ -166,19 +166,19 @@ module.exports = {
                     fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
                 }
             } catch (err) {
-                await sock.sendMessage(from, { text: `❌ *Gagal mengambil rincian detail:*\n_${err.message}_` });
+                await sock.sendMessage(from, { text: `*Gagal mengambil rincian detail:*\n_${err.message}_` });
                 return;
             }
         }
 
         const targetPlay = userPlays[indexInput - 1];
         if (!targetPlay || !targetPlay.idx) {
-            await sock.sendMessage(from, { text: `❌ Data riwayat lagu ke-${indexInput} tidak ditemukan.` });
+            await sock.sendMessage(from, { text: `Data riwayat lagu ke-${indexInput} tidak ditemukan.` });
             return;
         }
 
         try {
-            await sock.sendMessage(from, { text: `🔍 _Mengambil rincian skor untuk lagu *${targetPlay.title}*..._` });
+            await sock.sendMessage(from, { text: `_Mengambil rincian skor untuk lagu ${targetPlay.title}..._` });
 
             const result = await fetchMaimaiRecentDetail(clal, targetPlay.idx, profile.sessionCookie, profile.userAgent, profile.domain);
             const detail = result.detail;
@@ -203,36 +203,36 @@ module.exports = {
             // Dapatkan Emoji Score Rank
             const rankEmoji = detail.rank ? `*[${detail.rank}]*` : '';
 
-            let responseText = `🏁 *MAIMAI DX RECORD DETAIL*\n`;
+            let responseText = `*DETAIL RIWAYAT BERMAIN MAIMAI DX*\n`;
             responseText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
-            responseText += `🎵 *${detail.title}*\n`;
-            responseText += `📅 ${detail.date}\n\n`;
+            responseText += `*${detail.title}*\n`;
+            responseText += `Tanggal: ${detail.date}\n\n`;
             
             responseText += `• *Difficulty:* ${diffDisplay} ${detail.level} (${constantDisplay})\n`;
             responseText += `• *Accuracy:* ${rankEmoji} ${detail.achievement}\n\n`;
             
-            responseText += `⏱️ *Timing:* Fast ${detail.fast} | Late ${detail.late}\n`;
+            responseText += `*Timing:* Fast ${detail.fast} | Late ${detail.late}\n`;
             
             const ratingChangeDisplay = detail.ratingChange ? ` (${detail.ratingChange})` : '';
-            responseText += `👤 *Rating:* ${detail.rating}${ratingChangeDisplay}\n\n`;
+            responseText += `*Rating:* ${detail.rating}${ratingChangeDisplay}\n\n`;
 
-            responseText += `📈 *Judgements Total:*\n`;
+            responseText += `*Total Judgements:*\n`;
             responseText += `• Critical Perfect: ${cpSum}\n`;
             responseText += `• Perfect: ${pSum}\n`;
             responseText += `• Great: ${grSum}\n`;
             responseText += `• Good: ${gdSum}\n`;
             responseText += `• Miss: ${msSum}\n\n`;
 
-            responseText += `📊 *Judgements Table:*\n`;
+            responseText += `*Tabel Judgements:*\n`;
             responseText += `\`\`\`${formatGrid(detail.judgements)}\`\`\`\n`;
             
-            responseText += `⚙️ *Track:* ${detail.type} | ${detail.track}`;
+            responseText += `*Track:* ${detail.type} | ${detail.track}`;
 
             await sock.sendMessage(from, { text: responseText });
 
         } catch (err) {
             console.error('[Command Recent] Error mengambil detail playlog:', err);
-            await sock.sendMessage(from, { text: `❌ *Gagal mengambil detail riwayat:*\n_${err.message}_` });
+            await sock.sendMessage(from, { text: `*Gagal mengambil detail riwayat:*\n_${err.message}_` });
         }
     }
 };

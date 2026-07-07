@@ -84,4 +84,39 @@ function extractConstant(song, difficulty) {
     return null;
 }
 
-module.exports = { loadMusicData, getSongConstant };
+/**
+ * Returns the version name of the most recently added version in the dataset.
+ * Songs with this version are considered "new" for the B15 pool.
+ * @returns {Promise<string>}
+ */
+async function getCurrentVersion() {
+    const songs = await loadMusicData();
+    if (!songs.length) return '';
+    // Unique versions are returned in chronological order by the Diving Fish dataset
+    const uniqueVersions = [...new Set(songs.map(s => s.version).filter(Boolean))];
+    return uniqueVersions[uniqueVersions.length - 1] || '';
+}
+
+/**
+ * Looks up a song entry in the dataset and returns it with all metadata.
+ * @param {string} title
+ * @param {string} type 'DX' or 'SD'
+ * @returns {Promise<Object|null>}
+ */
+async function findSong(title, type) {
+    const songs = await loadMusicData();
+    const cleanTitle = title.trim().toLowerCase();
+    const apiType = type.toUpperCase() === 'DX' ? 'DX' : 'SD';
+
+    let song = songs.find(s => s.title.trim().toLowerCase() === cleanTitle && s.type === apiType);
+    if (!song) {
+        song = songs.find(s => {
+            const nS = s.title.replace(/[\s""'']/g, '').toLowerCase();
+            const nT = cleanTitle.replace(/[\s""'']/g, '').toLowerCase();
+            return nS === nT && s.type === apiType;
+        });
+    }
+    return song || null;
+}
+
+module.exports = { loadMusicData, getSongConstant, getCurrentVersion, findSong };

@@ -9,6 +9,7 @@ const { fetchMaimaiProfile } = require('./utils/scraper');
 
 const otps = new Map();
 let activeSock = null;
+let reconnectDelay = 1000; // starts at 1s, doubles each attempt up to 30s
 
 // Membaca konfigurasi port dari config.json
 let PORT = 3000;
@@ -100,10 +101,17 @@ async function startBot() {
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Koneksi terputus karena: ', lastDisconnect.error, ', mencoba menghubungkan kembali...', shouldReconnect);
-            if (shouldReconnect) startBot();
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Koneksi terputus karena: ', lastDisconnect?.error?.message, '— reconnect:', shouldReconnect);
+            if (shouldReconnect) {
+                console.log(`[Bot] Mencoba menghubungkan kembali dalam ${reconnectDelay / 1000}s...`);
+                setTimeout(() => {
+                    reconnectDelay = Math.min(reconnectDelay * 2, 30000); // cap at 30s
+                    startBot();
+                }, reconnectDelay);
+            }
         } else if (connection === 'open') {
+            reconnectDelay = 1000; // reset backoff on successful connection
             console.log('Bot WhatsApp Berhasil Terhubung!');
         }
     });

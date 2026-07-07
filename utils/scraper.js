@@ -553,45 +553,75 @@ async function fetchMaimaiMusicBest(clal, savedSessionCookie, userAgent, preferr
     for (const domain of domains) {
         try {
             const allScores = [];
-            let latestNewSessionCookie = null;
+            let validSessionCookie = savedSessionCookie;
 
-            for (const diff of DIFFS) {
-                console.log(`[Scraper] [MusicBest] Fetching diff=${diff.id} (${diff.name}) from ${domain}`);
-                const targetUrl = `https://${domain}/maimai-mobile/record/musicGenre/search/?genre=99&diff=${diff.id}`;
-                const referer = `https://${domain}/maimai-mobile/record/`;
-                
-                const { html, newSessionCookie } = await fetchMaimaiPage(
-                    domain, clal,
-                    latestNewSessionCookie || savedSessionCookie,
-                    targetUrl, referer, ua
-                );
-                
-                if (newSessionCookie) {
-                    latestNewSessionCookie = newSessionCookie;
+            // 1. Fetch the first difficulty (Expert) sequentially to validate/refresh session
+            const firstDiff = DIFFS[0];
+            console.log(`[Scraper] [MusicBest] Fetching diff=${firstDiff.id} (${firstDiff.name}) from ${domain}`);
+            const firstUrl = `https://${domain}/maimai-mobile/record/musicGenre/search/?genre=99&diff=${firstDiff.id}`;
+            const referer = `https://${domain}/maimai-mobile/record/`;
+            
+            const firstResult = await fetchMaimaiPage(
+                domain, clal, validSessionCookie, firstUrl, referer, ua
+            );
+            
+            let latestNewSessionCookie = firstResult.newSessionCookie || null;
+            if (latestNewSessionCookie) {
+                validSessionCookie = latestNewSessionCookie;
+            }
+
+            // Parse first difficulty
+            const firstBlocks = firstResult.html.split('class="w_450 m_15 p_r f_0"');
+            console.log(`[Scraper] [MusicBest] diff=${firstDiff.name}: found ${firstBlocks.length - 1} cards.`);
+            for (let i = 1; i < firstBlocks.length; i++) {
+                const block = firstBlocks[i];
+                let title = '';
+                const titleMatch = block.match(/class="[^"]*music_name_block[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+                if (titleMatch) title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
+                if (!title) continue;
+
+                let type = (block.includes('music_standard.png') || block.includes('_standard')) ? 'SD' : 'DX';
+                let achievement = 0;
+                const achMatch = block.match(/class="[^"]*music_achievement_txt[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+                if (achMatch) {
+                    const rawAch = achMatch[1].replace(/<[^>]*>/g, '').replace(/%/g, '').trim();
+                    achievement = parseFloat(rawAch);
                 }
+                if (isNaN(achievement) || achievement === 0) continue;
 
-                // Split HTML by w_450 cards
+                let rank = '';
+                const rankMatch = block.match(/music_icon_([a-zA-Z0-9_]+)\.png/);
+                if (rankMatch) rank = rankMatch[1].toUpperCase().replace('PLUS', '+').replace('P', '+');
+
+                allScores.push({ title, type, difficulty: firstDiff.name, achievement, rank });
+            }
+
+            // 2. Fetch the remaining difficulties (Master, Re:Master) in parallel since session is validated
+            const remainingDiffs = DIFFS.slice(1);
+            const fetchPromises = remainingDiffs.map(async (diff) => {
+                console.log(`[Scraper] [MusicBest] Fetching diff=${diff.id} (${diff.name}) in parallel from ${domain}`);
+                const diffUrl = `https://${domain}/maimai-mobile/record/musicGenre/search/?genre=99&diff=${diff.id}`;
+                const { html } = await fetchMaimaiPage(
+                    domain, clal, validSessionCookie, diffUrl, referer, ua
+                );
+                return { diff, html };
+            });
+
+            const remainingResults = await Promise.all(fetchPromises);
+
+            // Parse remaining difficulties
+            for (const { diff, html } of remainingResults) {
                 const blocks = html.split('class="w_450 m_15 p_r f_0"');
                 console.log(`[Scraper] [MusicBest] diff=${diff.name}: found ${blocks.length - 1} cards.`);
-
+                
                 for (let i = 1; i < blocks.length; i++) {
                     const block = blocks[i];
-
-                    // Extract song name
                     let title = '';
                     const titleMatch = block.match(/class="[^"]*music_name_block[^"]*"[^>]*>([\s\S]*?)<\/div>/);
-                    if (titleMatch) {
-                        title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
-                    }
+                    if (titleMatch) title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
                     if (!title) continue;
 
-                    // Extract type (STANDARD or DX)
-                    let type = 'DX';
-                    if (block.includes('music_standard.png') || block.includes('_standard')) {
-                        type = 'SD';
-                    }
-
-                    // Extract achievement
+                    let type = (block.includes('music_standard.png') || block.includes('_standard')) ? 'SD' : 'DX';
                     let achievement = 0;
                     const achMatch = block.match(/class="[^"]*music_achievement_txt[^"]*"[^>]*>([\s\S]*?)<\/div>/);
                     if (achMatch) {
@@ -600,20 +630,11 @@ async function fetchMaimaiMusicBest(clal, savedSessionCookie, userAgent, preferr
                     }
                     if (isNaN(achievement) || achievement === 0) continue;
 
-                    // Extract rank (optional, fallback to calculating it from achievement rate)
                     let rank = '';
                     const rankMatch = block.match(/music_icon_([a-zA-Z0-9_]+)\.png/);
-                    if (rankMatch) {
-                        rank = rankMatch[1].toUpperCase().replace('PLUS', '+').replace('P', '+');
-                    }
+                    if (rankMatch) rank = rankMatch[1].toUpperCase().replace('PLUS', '+').replace('P', '+');
 
-                    allScores.push({
-                        title,
-                        type,
-                        difficulty: diff.name,
-                        achievement,
-                        rank
-                    });
+                    allScores.push({ title, type, difficulty: diff.name, achievement, rank });
                 }
             }
 

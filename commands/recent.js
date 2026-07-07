@@ -64,23 +64,61 @@ module.exports = {
 
         const clal = profile.clal;
 
-        // Skenario A: Hanya mengetik `.recent` (Menampilkan daftar 5 lagu terakhir)
+        // 2. Deteksi apakah ini request halaman daftar lagu (.recent atau .recent page [angka])
+        let pageNum = 1;
+        let isPageRequest = false;
+
         if (args.length === 0) {
+            isPageRequest = true;
+            pageNum = 1;
+        } else if (args[0].toLowerCase() === 'page' || args[0].toLowerCase() === 'p') {
+            isPageRequest = true;
+            pageNum = parseInt(args[1], 10);
+            if (isNaN(pageNum) || pageNum < 1 || pageNum > 5) {
+                await sock.sendMessage(from, { text: '⚠️ *Halaman Tidak Valid!*\n\nMasukkan halaman 1 sampai 5.\nContoh: *.recent page 2* atau *.recent p 2*' });
+                return;
+            }
+        }
+
+        // Skenario A: Request Halaman Daftar Lagu
+        if (isPageRequest) {
             try {
-                await sock.sendMessage(from, { text: '🔍 _Mengambil riwayat bermain terbaru Anda dari Maimai DX NET..._' });
-                
-                const playlogs = await fetchMaimaiRecent(clal);
-                if (playlogs.length === 0) {
-                    await sock.sendMessage(from, { text: '📭 Riwayat bermain Anda kosong di Maimai DX NET.' });
+                let playlogs = recentSessions.get(senderJid);
+
+                // Jika data cache di memori kosong, ambil langsung dari SEGA
+                if (!playlogs) {
+                    await sock.sendMessage(from, { text: '🔍 _Mengambil riwayat bermain terbaru Anda dari Maimai DX NET..._' });
+                    const result = await fetchMaimaiRecent(clal, profile.sessionCookie, profile.userAgent, profile.domain);
+                    playlogs = result.playlogs;
+
+                    if (playlogs.length === 0) {
+                        await sock.sendMessage(from, { text: '📭 Riwayat bermain Anda kosong di Maimai DX NET.' });
+                        return;
+                    }
+
+                    // Update sessionCookie jika diperbarui
+                    if (result.newSessionCookie) {
+                        players[senderJid].sessionCookie = result.newSessionCookie;
+                        fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                    }
+
+                    // Simpan daftar playlogs di memori
+                    recentSessions.set(senderJid, playlogs);
+                }
+
+                const itemsPerPage = 5;
+                const startIndex = (pageNum - 1) * itemsPerPage;
+                const endIndex = Math.min(startIndex + itemsPerPage, playlogs.length);
+
+                if (startIndex >= playlogs.length) {
+                    await sock.sendMessage(from, { text: `⚠️ Halaman ${pageNum} tidak ditemukan (Hanya ada ${Math.ceil(playlogs.length / itemsPerPage)} halaman).` });
                     return;
                 }
 
-                // Simpan daftar playlogs di memori
-                recentSessions.set(senderJid, playlogs);
+                let responseText = `🎵 *RIWAYAT BERMAIN MAIMAI DX (Halaman ${pageNum}/5)*\n`;
+                responseText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-                let responseText = `🎵 *RIWAYAT BERMAIN MAIMAI DX (5 Terakhir)*\n\n`;
-                
-                for (let i = 0; i < playlogs.length; i++) {
+                for (let i = startIndex; i < endIndex; i++) {
                     const log = playlogs[i];
                     // Cari konstanta lagu dari database musik lokal
                     const constant = await getSongConstant(log.title, log.type, log.difficulty);
@@ -90,7 +128,9 @@ module.exports = {
                     responseText += `${i + 1}. *${log.title}* - ${difficultyDisplay} ${constantDisplay} (${log.achievement})\n`;
                 }
 
-                responseText += `\n💡 *Ketik ".recent [1-5]" untuk melihat detail rincian skor!*`;
+                responseText += `\n💡 *Ketik ".recent page [2-5]" (atau ".recent p [2-5]") untuk halaman lain.*`;
+                responseText += `\n💡 *Ketik ".recent [1-25]" untuk melihat detail rincian skor lagu!*`;
+                
                 await sock.sendMessage(from, { text: responseText });
 
             } catch (err) {
@@ -100,21 +140,31 @@ module.exports = {
             return;
         }
 
-        // Skenario B: Mengetik `.recent [1-5]` (Menampilkan detail lagu)
+        // Skenario B: Request Detail Judgement Lagu (.recent [indeks 1-25])
         const indexInput = parseInt(args[0], 10);
-        if (isNaN(indexInput) || indexInput < 1 || indexInput > 5) {
-            await sock.sendMessage(from, { text: '⚠️ *Indeks Tidak Valid!*\n\nMasukkan angka 1 sampai 5.\nContoh: *.recent 1*' });
+        
+        let userPlays = recentSessions.get(senderJid);
+        const maxLimit = userPlays ? userPlays.length : 25;
+
+        if (isNaN(indexInput) || indexInput < 1 || indexInput > maxLimit) {
+            await sock.sendMessage(from, { 
+                text: `⚠️ *Indeks Tidak Valid!*\n\nMasukkan angka indeks lagu yang terdaftar (1 sampai ${maxLimit}).\nContoh: *.recent 1*` 
+            });
             return;
         }
-
-        let userPlays = recentSessions.get(senderJid);
 
         // Jika sesi memori kosong (misal bot baru restart), trigger penarikan list otomatis terlebih dahulu
         if (!userPlays) {
             try {
                 console.log(`[Command Recent] Sesi memori kosong untuk ${senderJid}, mengambil list...`);
-                userPlays = await fetchMaimaiRecent(clal);
+                const result = await fetchMaimaiRecent(clal, profile.sessionCookie, profile.userAgent, profile.domain);
+                userPlays = result.playlogs;
                 recentSessions.set(senderJid, userPlays);
+
+                if (result.newSessionCookie) {
+                    players[senderJid].sessionCookie = result.newSessionCookie;
+                    fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                }
             } catch (err) {
                 await sock.sendMessage(from, { text: `❌ *Gagal mengambil rincian detail:*\n_${err.message}_` });
                 return;
@@ -130,7 +180,13 @@ module.exports = {
         try {
             await sock.sendMessage(from, { text: `🔍 _Mengambil rincian skor untuk lagu *${targetPlay.title}*..._` });
 
-            const detail = await fetchMaimaiRecentDetail(clal, targetPlay.idx);
+            const result = await fetchMaimaiRecentDetail(clal, targetPlay.idx, profile.sessionCookie, profile.userAgent, profile.domain);
+            const detail = result.detail;
+
+            if (result.newSessionCookie) {
+                players[senderJid].sessionCookie = result.newSessionCookie;
+                fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+            }
 
             // Hitung total Judgements
             const cpSum = Object.values(detail.judgements).reduce((sum, val) => sum + (val[0] || 0), 0);

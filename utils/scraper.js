@@ -24,18 +24,22 @@ class CookieJar {
     }
 }
 
+// Fallback User-Agent jika tidak disediakan
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+
 /**
  * Helper untuk melakukan proses tukar token (login exchange) dengan Aime Gateway.
  * Mengembalikan session cookie header yang siap dipakai.
  */
 async function getSessionCookies(domain, clal, userAgent) {
     const jar = new CookieJar();
+    const ua = userAgent || DEFAULT_USER_AGENT;
 
     // Step 1: Hit Maimai Mobile utama untuk memicu redirect ke Aime Gateway
     let response = await fetch(`https://${domain}/maimai-mobile/`, {
         method: 'GET',
         redirect: 'manual',
-        headers: { 'User-Agent': userAgent }
+        headers: { 'User-Agent': ua }
     });
     jar.addCookies(response.headers.getSetCookie ? response.headers.getSetCookie() : response.headers.get('set-cookie'));
 
@@ -50,7 +54,7 @@ async function getSessionCookies(domain, clal, userAgent) {
         redirect: 'manual',
         headers: {
             'Cookie': `clal=${clal}`,
-            'User-Agent': userAgent
+            'User-Agent': ua
         }
     });
 
@@ -65,7 +69,7 @@ async function getSessionCookies(domain, clal, userAgent) {
         redirect: 'manual',
         headers: {
             'Cookie': jar.getCookieHeader(),
-            'User-Agent': userAgent
+            'User-Agent': ua
         }
     });
     jar.addCookies(response.headers.getSetCookie ? response.headers.getSetCookie() : response.headers.get('set-cookie'));
@@ -75,7 +79,7 @@ async function getSessionCookies(domain, clal, userAgent) {
         method: 'GET',
         headers: {
             'Cookie': jar.getCookieHeader(),
-            'User-Agent': userAgent
+            'User-Agent': ua
         }
     });
     if (response.ok) {
@@ -86,39 +90,108 @@ async function getSessionCookies(domain, clal, userAgent) {
 }
 
 /**
- * Mengambil profil Maimai DX NET (Nickname dan Rating).
+ * Mengakses halaman target di Maimai DX NET secara efisien menggunakan session cookie tersimpan.
+ * Jika session cookie kosong atau kedaluwarsa, otomatis memicu getSessionCookies menggunakan clal.
+ */
+async function fetchMaimaiPage(domain, clal, savedSessionCookie, url, referer, userAgent) {
+    let sessionCookieHeader = savedSessionCookie;
+    let newSessionCookie = null;
+    const ua = userAgent || DEFAULT_USER_AGENT;
+
+    if (sessionCookieHeader) {
+        try {
+            console.log(`[Scraper] [Direct Fetch] Mencoba memuat ${url} dengan session cookie tersimpan`);
+            const response = await fetch(url, {
+                method: 'GET',
+                redirect: 'manual',
+                headers: {
+                    'Cookie': sessionCookieHeader,
+                    'User-Agent': ua,
+                    'Referer': referer || `https://${domain}/maimai-mobile/home/`
+                }
+            });
+
+            if (response.status === 200) {
+                const html = await response.text();
+                if (!html.includes('lng-tgk-aime-gw.am-all.net')) {
+                    console.log(`[Scraper] [Direct Fetch] Sesi valid.`);
+                    return { html, newSessionCookie: null };
+                }
+            }
+            console.log(`[Scraper] [Direct Fetch] Sesi tersimpan kedaluwarsa atau dialihkan (Status ${response.status}).`);
+        } catch (err) {
+            console.warn(`[Scraper] [Direct Fetch] Gagal melakukan request langsung:`, err.message);
+        }
+    }
+
+    // Jika sesi kosong atau expired, lakukan login exchange penuh menggunakan clal
+    if (!clal) {
+        throw new Error('Sesi Maimai DX NET kedaluwarsa dan tidak ada cookie clal untuk melakukan auto-login.');
+    }
+
+    console.log(`[Scraper] [Login Exchange] Melakukan pertukaran token menggunakan cookie clal`);
+    sessionCookieHeader = await getSessionCookies(domain, clal, ua);
+    newSessionCookie = sessionCookieHeader;
+
+    // Ambil halaman target dengan session cookie yang baru dibuat
+    const response = await fetch(url, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+            'Cookie': sessionCookieHeader,
+            'User-Agent': ua,
+            'Referer': referer || `https://${domain}/maimai-mobile/home/`
+        }
+    });
+
+    if (!response.ok && response.status !== 302) {
+        throw new Error(`Gagal memuat halaman target (Status ${response.status})`);
+    }
+
+    let html = await response.text();
+    
+    // Jika ada redirect internal pasca login, ikuti redirect tersebut
+    if (response.status === 302) {
+        const redirectLoc = response.headers.get('location');
+        const followResponse = await fetch(redirectLoc, {
+            method: 'GET',
+            headers: {
+                'Cookie': sessionCookieHeader,
+                'User-Agent': ua,
+                'Referer': url
+            }
+        });
+        html = await followResponse.text();
+    }
+
+    if (html.includes('lng-tgk-aime-gw.am-all.net')) {
+        throw new Error('Sesi Maimai DX NET tidak valid atau kedaluwarsa.');
+    }
+
+    return { html, newSessionCookie };
+}
+
+/**
+ * Mengambil profil Maimai DX NET (Nickname dan Rating) dengan optimasi sesi.
  * 
  * @param {string} clal 
- * @returns {Promise<{nickname: string, rating: number, domain: string}>}
+ * @param {string} savedSessionCookie
+ * @param {string} userAgent
+ * @param {string} preferredDomain
+ * @returns {Promise<{nickname: string, rating: number, domain: string, newSessionCookie: string|null}>}
  */
-async function fetchMaimaiProfile(clal) {
-    const domains = ['maimaidx-eng.com', 'maimaidx.jp'];
-    const userAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+async function fetchMaimaiProfile(clal, savedSessionCookie, userAgent, preferredDomain) {
+    const domains = preferredDomain ? [preferredDomain] : ['maimaidx-eng.com', 'maimaidx.jp'];
+    const ua = userAgent || DEFAULT_USER_AGENT;
     const errors = [];
 
     for (const domain of domains) {
         try {
             console.log(`[Scraper] [Profile] Mencoba domain: ${domain}`);
-            const sessionCookieHeader = await getSessionCookies(domain, clal, userAgent);
-
-            const response = await fetch(`https://${domain}/maimai-mobile/home/`, {
-                method: 'GET',
-                headers: {
-                    'Cookie': sessionCookieHeader,
-                    'User-Agent': userAgent
-                }
-            });
-
-            if (!response.ok) {
-                errors.push(`${domain}: Gagal fetch Home Page (Status ${response.status})`);
-                continue;
-            }
-
-            const html = await response.text();
-            if (html.includes('login') || html.includes('aime')) {
-                errors.push(`${domain}: Sesi expired setelah login exchange`);
-                continue;
-            }
+            
+            const targetUrl = `https://${domain}/maimai-mobile/home/`;
+            const referer = `https://${domain}/maimai-mobile/`;
+            const { html, newSessionCookie } = await fetchMaimaiPage(domain, clal, savedSessionCookie, targetUrl, referer, ua);
 
             // Ekstraksi Nickname
             const nameMatch = html.match(/<div[^>]*class="[^"]*name_block[^"]*"[^>]*>([\s\S]*?)<\/div>/);
@@ -149,7 +222,7 @@ async function fetchMaimaiProfile(clal) {
             }
 
             if (nickname) {
-                return { nickname, rating, domain };
+                return { nickname, rating, domain, newSessionCookie };
             } else {
                 errors.push(`${domain}: Gagal parsing nickname dari HTML`);
             }
@@ -163,50 +236,35 @@ async function fetchMaimaiProfile(clal) {
 }
 
 /**
- * Mengambil daftar 5 riwayat lagu terakhir yang dimainkan.
+ * Mengambil daftar 5 riwayat lagu terakhir yang dimainkan dengan optimasi sesi.
  * 
  * @param {string} clal 
- * @returns {Promise<Array<{title: string, difficulty: string, type: string, achievement: string, rank: string, date: string, track: string, idx: string}>>}
+ * @param {string} savedSessionCookie
+ * @param {string} userAgent
+ * @param {string} preferredDomain
+ * @returns {Promise<{playlogs: Array<Object>, newSessionCookie: string|null}>}
  */
-async function fetchMaimaiRecent(clal) {
-    const domains = ['maimaidx-eng.com', 'maimaidx.jp'];
-    const userAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+async function fetchMaimaiRecent(clal, savedSessionCookie, userAgent, preferredDomain) {
+    const domains = preferredDomain ? [preferredDomain] : ['maimaidx-eng.com', 'maimaidx.jp'];
+    const ua = userAgent || DEFAULT_USER_AGENT;
     const errors = [];
 
     for (const domain of domains) {
         try {
             console.log(`[Scraper] [Recent] Mencoba domain: ${domain}`);
-            const sessionCookieHeader = await getSessionCookies(domain, clal, userAgent);
-
-            // Pada Maimai DX NET, halaman record utama (/record/) adalah daftar playlog (riwayat bermain)
-            const response = await fetch(`https://${domain}/maimai-mobile/record/`, {
-                method: 'GET',
-                headers: {
-                    'Cookie': sessionCookieHeader,
-                    'User-Agent': userAgent
-                }
-            });
-
-            if (!response.ok) {
-                errors.push(`${domain}: Gagal fetch playlog page (Status ${response.status})`);
-                continue;
-            }
-
-            const html = await response.text();
-            if (html.includes('login') || html.includes('aime')) {
-                errors.push(`${domain}: Sesi expired di halaman playlog`);
-                continue;
-            }
+            
+            const targetUrl = `https://${domain}/maimai-mobile/record/`;
+            const referer = `https://${domain}/maimai-mobile/home/`;
+            const { html, newSessionCookie } = await fetchMaimaiPage(domain, clal, savedSessionCookie, targetUrl, referer, ua);
 
             // Split HTML berdasarkan container lagu
             const blocks = html.split('class="playlog_top_container');
             if (blocks.length <= 1) {
-                return []; // Riwayat bermain kosong
+                return { playlogs: [], newSessionCookie };
             }
 
             const playlogs = [];
-            // Ambil maksimal 5 lagu terakhir
-            for (let i = 1; i < Math.min(blocks.length, 6); i++) {
+            for (let i = 1; i < blocks.length; i++) {
                 const block = blocks[i];
 
                 // 1. Difficulty
@@ -231,31 +289,31 @@ async function fetchMaimaiRecent(clal) {
                 const dateMatch = block.match(/class="v_b">([^<]+)<\/span>/);
                 if (dateMatch) date = dateMatch[1].trim();
 
-                // 3. Song Title
+                // 4. Song Title
                 let title = '';
-                const titleMatch = block.match(/class="[^"]*music_lv_back[^"]*"[^>]*>[^<]*<\/div>\s*<\/div>\s*<\/div>\s*([\s\S]*?)\s*<\/div>/);
+                const titleMatch = block.match(/class="[^"]*basic_block[^"]*break[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>\s*([\s\S]*?)\s*<\/div>/);
                 if (titleMatch) {
                     title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
                 }
 
-                // 4. Type (SD / DX)
+                // 5. Type (SD / DX)
                 const type = block.includes('music_dx.png') ? 'DX' : 'SD';
 
-                // 5. Achievement
+                // 6. Achievement
                 let achievement = '';
                 const achMatch = block.match(/class="playlog_achievement_txt[^"]*">(\d+)<span[^>]*>([^<]+)<\/span>/);
                 if (achMatch) {
                     achievement = achMatch[1] + achMatch[2];
                 }
 
-                // 6. Score Rank
+                // 7. Score Rank
                 let rank = '';
                 const rankMatch = block.match(/playlog\/([a-zA-Z0-9_]+)\.png[^"]*"[^>]*class="playlog_scorerank"/);
                 if (rankMatch) {
                     rank = rankMatch[1].toUpperCase().replace('PLUS', '+');
                 }
 
-                // 7. Idx parameter untuk detail
+                // 8. Idx parameter untuk detail
                 let idx = '';
                 const idxMatch = block.match(/name="idx"\s+value="([^"]+)"/);
                 if (idxMatch) idx = idxMatch[1];
@@ -273,7 +331,7 @@ async function fetchMaimaiRecent(clal) {
                 });
             }
 
-            return playlogs;
+            return { playlogs, newSessionCookie };
         } catch (err) {
             errors.push(`${domain}: Error (${err.message})`);
         }
@@ -283,46 +341,31 @@ async function fetchMaimaiRecent(clal) {
 }
 
 /**
- * Mengambil rincian detail judgement dari suatu track bermain.
+ * Mengambil rincian detail judgement dari suatu track bermain dengan optimasi sesi.
  * 
  * @param {string} clal 
  * @param {string} idx 
- * @returns {Promise<{title: string, difficulty: string, type: string, achievement: string, rank: string, fast: number, late: number, rating: number, ratingChange: string, combo: string, sync: string, track: string, date: string, judgements: Object}>}
+ * @param {string} savedSessionCookie
+ * @param {string} userAgent
+ * @param {string} preferredDomain
+ * @returns {Promise<{detail: Object, newSessionCookie: string|null}>}
  */
-async function fetchMaimaiRecentDetail(clal, idx) {
-    const domains = ['maimaidx-eng.com', 'maimaidx.jp'];
-    const userAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+async function fetchMaimaiRecentDetail(clal, idx, savedSessionCookie, userAgent, preferredDomain) {
+    const domains = preferredDomain ? [preferredDomain] : ['maimaidx-eng.com', 'maimaidx.jp'];
+    const ua = userAgent || DEFAULT_USER_AGENT;
     const errors = [];
 
     for (const domain of domains) {
         try {
             console.log(`[Scraper] [Detail] Mencoba domain: ${domain}`);
-            const sessionCookieHeader = await getSessionCookies(domain, clal, userAgent);
-
+            
             const detailUrl = `https://${domain}/maimai-mobile/record/playlogDetail/?idx=${idx}`;
-            const response = await fetch(detailUrl, {
-                method: 'GET',
-                headers: {
-                    'Cookie': sessionCookieHeader,
-                    'User-Agent': userAgent,
-                    'Referer': `https://${domain}/maimai-mobile/record/`
-                }
-            });
-
-            if (!response.ok) {
-                errors.push(`${domain}: Gagal fetch detail playlog (Status ${response.status})`);
-                continue;
-            }
-
-            const html = await response.text();
-            if (html.includes('login') || html.includes('aime')) {
-                errors.push(`${domain}: Sesi expired di halaman detail`);
-                continue;
-            }
+            const referer = `https://${domain}/maimai-mobile/record/`;
+            const { html, newSessionCookie } = await fetchMaimaiPage(domain, clal, savedSessionCookie, detailUrl, referer, ua);
 
             // 1. Song Title
             let title = '';
-            const titleMatch = html.match(/class="[^"]*music_lv_back[^"]*"[^>]*>[^<]*<\/div>\s*<\/div>\s*<\/div>\s*([\s\S]*?)\s*<\/div>/);
+            const titleMatch = html.match(/class="[^"]*basic_block[^"]*break[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>\s*([\s\S]*?)\s*<\/div>/);
             if (titleMatch) {
                 title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
             }
@@ -391,7 +434,7 @@ async function fetchMaimaiRecentDetail(clal, idx) {
             const dateMatch = html.match(/class="v_b">([^<]+)<\/span>/);
             if (dateMatch) date = dateMatch[1].trim();
 
-            // 10. Judgements grid (Tap, Hold, Slide, Touch, Break)
+            // 10. Judgements grid
             const noteTypes = ['tap', 'hold', 'slide', 'touch', 'break'];
             const judgements = {};
             for (const note of noteTypes) {
@@ -410,7 +453,7 @@ async function fetchMaimaiRecentDetail(clal, idx) {
                 }
             }
 
-            return {
+            const detail = {
                 title,
                 difficulty,
                 level,
@@ -427,6 +470,8 @@ async function fetchMaimaiRecentDetail(clal, idx) {
                 date,
                 judgements
             };
+
+            return { detail, newSessionCookie };
         } catch (err) {
             errors.push(`${domain}: Error (${err.message})`);
         }

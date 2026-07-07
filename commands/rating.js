@@ -70,12 +70,10 @@ module.exports = {
         // 3. Coba lakukan auto-update langsung dari SEGA jika cookie clal tersedia
         if (profile.clal) {
             try {
-                // Beritahu pengirim jika pengetesan memakan waktu (opsional, tapi bagus agar bot tidak terasa gantung)
-                // Kita jalankan langsung karena request biasanya sangat cepat (< 2 detik)
-                const freshProfile = await fetchMaimaiProfile(profile.clal);
+                const result = await fetchMaimaiProfile(profile.clal, profile.sessionCookie, profile.userAgent, profile.domain);
                 
-                nickname = freshProfile.nickname;
-                rating = freshProfile.rating;
+                nickname = result.nickname;
+                rating = result.rating;
                 updatedAt = new Date().toISOString();
 
                 // Simpan rating terupdate ke players.json
@@ -83,6 +81,9 @@ module.exports = {
                     nickname: nickname,
                     rating: rating,
                     clal: profile.clal,
+                    sessionCookie: result.newSessionCookie || profile.sessionCookie,
+                    userAgent: profile.userAgent,
+                    domain: result.domain || profile.domain,
                     updatedAt: updatedAt
                 };
                 fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');

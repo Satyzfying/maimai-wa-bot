@@ -138,10 +138,14 @@ const server = http.createServer((req, res) => {
 
         req.on('end', async () => {
             try {
+                console.log(`[HTTP Server] Menerima request POST /login dengan body: ${body}`);
                 // Membaca form url-encoded data dari bookmarklet form submit
                 const params = new URLSearchParams(body);
                 const otp = params.get('otp');
                 const clal = params.get('clal');
+
+                console.log(`[HTTP Server] Parsed OTP: "${otp}", Clal length: ${clal ? clal.length : 0}`);
+                console.log(`[HTTP Server] Daftar OTP aktif di memori bot:`, [...otps.keys()]);
 
                 if (!otp || !clal) {
                     sendHtmlResponse(res, 400, false, 'Data OTP atau Cookie clal tidak ditemukan dalam request.');
@@ -161,10 +165,10 @@ const server = http.createServer((req, res) => {
                 // Kirim respons sukses awal ke browser berupa halaman HTML premium
                 sendHtmlResponse(res, 200, true, 'OTP berhasil diverifikasi! Bot sedang membaca data profil Anda dari Maimai DX NET. Silakan kembali ke WhatsApp.');
 
-                // Scraping profil Maimai di background menggunakan helper scraper.js
                 const jid = otpData.jid;
+                const userAgent = req.headers['user-agent'] || '';
                 try {
-                    const profile = await fetchMaimaiProfile(clal);
+                    const profile = await fetchMaimaiProfile(clal, null, userAgent);
 
                     // Memperbarui database lokal players.json
                     const dbPath = path.join(__dirname, 'players.json');
@@ -181,6 +185,9 @@ const server = http.createServer((req, res) => {
                         nickname: profile.nickname,
                         rating: profile.rating,
                         clal: clal,
+                        sessionCookie: profile.newSessionCookie,
+                        userAgent: userAgent,
+                        domain: profile.domain,
                         updatedAt: new Date().toISOString()
                     };
 

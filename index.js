@@ -201,19 +201,29 @@ const server = http.createServer((req, res) => {
                         msgText += `• *Server Region:* ${profile.domain}\n\n`;
                         msgText += `Akun Anda telah terhubung secara aman. Silakan ketik *.rating* untuk melihat statistik Anda!`;
 
-                        await activeSock.sendMessage(jid, { text: msgText });
+                        try {
+                            await activeSock.sendMessage(jid, { text: msgText });
+                        } catch (sendErr) {
+                            console.error('[HTTP Server] Gagal mengirim pesan sukses ke WA:', sendErr.message);
+                        }
                     }
                 } catch (scrapeErr) {
                     console.error('[HTTP Server] Scraper Error:', scrapeErr);
                     if (activeSock) {
-                        await activeSock.sendMessage(jid, {
-                            text: `❌ *Gagal Menghubungkan Akun Maimai:*\n_${scrapeErr.message}_`
-                        });
+                        try {
+                            await activeSock.sendMessage(jid, {
+                                text: `❌ *Gagal Menghubungkan Akun Maimai:*\n_${scrapeErr.message}_`
+                            });
+                        } catch (sendErr) {
+                            console.error('[HTTP Server] Gagal mengirim pesan error ke WA:', sendErr.message);
+                        }
                     }
                 }
             } catch (err) {
                 console.error('[HTTP Server] Parser Error:', err);
-                sendHtmlResponse(res, 500, false, 'Gagal memproses data dari browser.');
+                if (!res.headersSent) {
+                    sendHtmlResponse(res, 500, false, 'Gagal memproses data dari browser.');
+                }
             }
         });
     } else {

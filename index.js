@@ -265,6 +265,11 @@ const server = http.createServer((req, res) => {
     }
 });
 
+server.on('error', (err) => {
+    console.error(`[HTTP Server] Gagal listen di port ${PORT}:`, err);
+    process.exit(1);
+});
+
 server.listen(PORT, () => {
     console.log(`[HTTP Server] Berjalan lancar di port ${PORT}`);
 });

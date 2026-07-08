@@ -11,6 +11,7 @@ const { dataPath, ensureDataDir } = require('./utils/paths');
 const otps = new Map();
 let activeSock = null;
 let reconnectDelay = 1000; // starts at 1s, doubles each attempt up to 30s
+let pairingCodeRequested = false;
 
 ensureDataDir();
 
@@ -94,26 +95,28 @@ async function startBot() {
 
     activeSock = sock;
 
-    if (!state.creds.registered) {
-        const phoneNumber = (process.env.PAIRING_PHONE_NUMBER || '').replace(/\D/g, '');
-
-        if (phoneNumber) {
-            try {
-                const code = await sock.requestPairingCode(phoneNumber);
-                console.log('--- WHATSAPP PAIRING CODE ---');
-                console.log(code.match(/.{1,4}/g)?.join('-') || code);
-                console.log('Buka WhatsApp > Linked Devices > Link with phone number, lalu masukkan kode di atas.');
-            } catch (err) {
-                console.error('[Bot] Gagal meminta pairing code:', err.message);
-            }
-        } else {
-            console.warn('[Bot] Session belum terdaftar. Isi PAIRING_PHONE_NUMBER dengan nomor WhatsApp bot, format kode negara tanpa plus. Contoh: 6281234567890');
-        }
-    }
-
     // Event koneksi WhatsApp
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr && !state.creds.registered && !pairingCodeRequested) {
+            pairingCodeRequested = true;
+            const phoneNumber = (process.env.PAIRING_PHONE_NUMBER || '').replace(/\D/g, '');
+
+            if (phoneNumber) {
+                try {
+                    const code = await sock.requestPairingCode(phoneNumber);
+                    console.log('--- WHATSAPP PAIRING CODE ---');
+                    console.log(code.match(/.{1,4}/g)?.join('-') || code);
+                    console.log('Buka WhatsApp > Linked Devices > Link with phone number, lalu masukkan kode di atas.');
+                } catch (err) {
+                    pairingCodeRequested = false;
+                    console.error('[Bot] Gagal meminta pairing code:', err.message);
+                }
+            } else {
+                console.warn('[Bot] Session belum terdaftar. Isi PAIRING_PHONE_NUMBER dengan nomor WhatsApp bot, format kode negara tanpa plus. Contoh: 6281234567890');
+            }
+        }
 
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -127,6 +130,7 @@ async function startBot() {
             }
         } else if (connection === 'open') {
             reconnectDelay = 1000; // reset backoff on successful connection
+            pairingCodeRequested = false;
             console.log('Bot WhatsApp Berhasil Terhubung!');
         }
     });

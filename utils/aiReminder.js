@@ -102,15 +102,32 @@ function nullable(schemaPart) {
 function compactPending(session) {
     if (!session) return null;
 
+    const eventDatetime = session.plan?.eventAt || pendingEventDateTime(session);
+
     return {
         stage: session.stage || null,
         event_title: session.eventMessage || session.plan?.eventMessage || null,
-        event_datetime: session.plan?.eventAt || null,
+        event_datetime: eventDatetime,
+        reply_context: eventDatetime && session.stage !== 'confirm'
+            ? 'Bot sedang menanyakan kapan user mau DIINGATKAN. Jam yang user sebut di balasan ini adalah waktu reminder, bukan waktu acara, kecuali user eksplisit bilang waktu acaranya berubah.'
+            : null,
         reminders: session.plan?.reminders?.map(item => ({
             remind_at: item.remindAt,
             label: item.offset?.label || item.label || null
         })) || null
     };
+}
+
+function pendingEventDateTime(session) {
+    if (!session?.dateParts || !session?.timeParts) return null;
+
+    const { year, month, day } = session.dateParts;
+    const { hour, minute } = session.timeParts;
+    return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:00+08:00`;
+}
+
+function pad(value) {
+    return String(value).padStart(2, '0');
 }
 
 async function parseWithAI({ text, pendingSession }) {
@@ -151,6 +168,9 @@ function buildPrompt(text, pendingSession) {
         `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA, tanggal 10 = tanggal 10 terdekat.\n` +
         `Kalau user memberi reminder fixed-time, gunakan reminders[].type="fixed_time" dan datetime absolut WITA.\n` +
         `Kalau user memberi countdown, gunakan reminders[].type="relative" dan minutes_before.\n` +
+        `Jika pending.reply_context mengatakan bot sedang menanyakan waktu reminder, pertahankan pending.event_datetime sebagai waktu acara.\n` +
+        `Dalam konteks itu, frasa seperti "jam 3 sore dan setengah 5 sore" berarti dua waktu reminder: 15:00 dan 16:30.\n` +
+        `Ubah event_datetime hanya jika user eksplisit bilang "acaranya jadi", "waktu acaranya", "jadwalnya", atau koreksi serupa.\n` +
         `Jika tanggal/jam acara kurang jelas, jangan menebak; set needs_clarification=true dan isi clarifying_question.\n` +
         `Jika ada pending reminder dan user mengoreksi seperti "salah", "bukan", "maksudku", gunakan revise_pending.\n\n` +
         `Contoh output fixed-time:\n` +

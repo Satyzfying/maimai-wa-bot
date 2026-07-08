@@ -1,7 +1,7 @@
 const { parseHour } = require('./naturalReminder');
 
 const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
-const DEFAULT_MODEL = process.env.GEMINI_REMINDER_MODEL || 'gemini-3.5-flash';
+const DEFAULT_MODEL = process.env.GEMINI_REMINDER_MODEL || 'gemini-3.1-flash-lite';
 
 function getApiKey() {
     if (process.env.AI_REMINDER_ENABLED === 'false') return null;

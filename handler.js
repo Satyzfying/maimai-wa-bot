@@ -1,6 +1,15 @@
 const fs = require('fs');
 const path = require('path');
-const { createNaturalReminders } = require('./utils/naturalReminder');
+const {
+    DEFAULT_OFFSETS,
+    buildReminderPlan,
+    createNaturalReminders,
+    createRemindersFromPlan,
+    parseEventDate,
+    parseHour,
+    parseOffsets,
+    parseReminderDraft
+} = require('./utils/naturalReminder');
 const { formatDateTime } = require('./utils/reminders');
 
 const commands = new Map();
@@ -31,6 +40,119 @@ if (fs.existsSync(commandsPath)) {
 }
 
 const PREFIX = '.';
+const pendingReminderSessions = new Map();
+const PENDING_TTL_MS = 10 * 60 * 1000;
+
+function getPendingKey(from, senderJid) {
+    return `${from}:${senderJid}`;
+}
+
+function defaultOffsetText() {
+    return DEFAULT_OFFSETS.map(offset => `• ${offset.label}`).join('\n');
+}
+
+function isDefaultOffsetAnswer(text) {
+    return /\b(standar|default|iya|ya|boleh|oke|ok|sip|gas)\b/i.test(text);
+}
+
+function isCancelAnswer(text) {
+    return /\b(batal|cancel|ga jadi|nggak jadi|tidak jadi)\b/i.test(text);
+}
+
+function cleanupExpiredPending() {
+    const now = Date.now();
+    for (const [key, session] of pendingReminderSessions.entries()) {
+        if (now - session.updatedAt > PENDING_TTL_MS) {
+            pendingReminderSessions.delete(key);
+        }
+    }
+}
+
+function buildNaturalReminderResponse(naturalReminder) {
+    let responseText = `Siap, aku set ${naturalReminder.created.length} reminder untuk:\n`;
+    responseText += `*${naturalReminder.eventMessage}*\n`;
+    responseText += `Waktu acara: ${formatDateTime(naturalReminder.eventAt.toISOString())}\n\n`;
+    responseText += naturalReminder.created
+        .map(reminder => `• ${formatDateTime(reminder.remindAt)} (*${reminder.id}*)`)
+        .join('\n');
+    return responseText;
+}
+
+async function askForMissingReminderInfo(sock, from, key, session) {
+    session.updatedAt = Date.now();
+    pendingReminderSessions.set(key, session);
+
+    if (!session.dateParts) {
+        await sock.sendMessage(from, {
+            text: `Mau aku reminder untuk tanggal berapa?\nContoh: *besok*, *tanggal 10*, atau *tanggal 10 Juli*.`
+        });
+        return;
+    }
+
+    if (!session.timeParts) {
+        await sock.sendMessage(from, {
+            text: `Mau di-remind jam berapa untuk *${session.eventMessage}*?\nContoh: *jam 09.30 pagi* atau *pukul 19:00*.`
+        });
+        return;
+    }
+
+    await sock.sendMessage(from, {
+        text: `Mau aku kasih reminder kapan aja?\n\nPaket standar:\n${defaultOffsetText()}\n\nBalas *standar* untuk pakai itu, atau tulis sendiri seperti *2 hari, 6 jam, 1 jam sebelumnya*.`
+    });
+}
+
+async function handlePendingReminder(sock, from, senderJid, text) {
+    cleanupExpiredPending();
+
+    const key = getPendingKey(from, senderJid);
+    const session = pendingReminderSessions.get(key);
+    if (!session) return false;
+
+    if (isCancelAnswer(text)) {
+        pendingReminderSessions.delete(key);
+        await sock.sendMessage(from, { text: 'Oke, reminder-nya aku batalin.' });
+        return true;
+    }
+
+    const dateParts = parseEventDate(text);
+    if (dateParts) session.dateParts = dateParts;
+
+    const timeParts = parseHour(text);
+    if (timeParts) session.timeParts = timeParts;
+
+    const explicitOffsets = parseOffsets(text, { includeDefault: false });
+    if (explicitOffsets.length) {
+        session.offsets = explicitOffsets;
+    } else if (session.dateParts && session.timeParts && isDefaultOffsetAnswer(text)) {
+        session.offsets = DEFAULT_OFFSETS;
+    }
+
+    if (!session.dateParts || !session.timeParts || !session.offsets.length) {
+        await askForMissingReminderInfo(sock, from, key, session);
+        return true;
+    }
+
+    const plan = buildReminderPlan(session);
+    if (!plan) {
+        pendingReminderSessions.delete(key);
+        await sock.sendMessage(from, {
+            text: 'Waktu reminder-nya sudah lewat atau tidak valid. Coba set ulang dengan waktu yang masih di masa depan.'
+        });
+        return true;
+    }
+
+    const naturalReminder = createRemindersFromPlan({
+        chatJid: from,
+        creatorJid: senderJid,
+        eventAt: plan.eventAt,
+        eventMessage: plan.eventMessage,
+        reminders: plan.reminders
+    });
+
+    pendingReminderSessions.delete(key);
+    await sock.sendMessage(from, { text: buildNaturalReminderResponse(naturalReminder) });
+    return true;
+}
 
 /**
  * Memproses pesan masuk dan mencocokkannya ke command yang terdaftar.
@@ -50,6 +172,9 @@ async function handleMessage(sock, m, otps) {
         if (!text) return;
 
         console.log(`[Pesan Masuk] ${from}: ${text}`);
+        cleanupExpiredPending();
+
+        const senderJid = msg.key.participant || msg.key.remoteJid;
 
         let isCommand = false;
         let commandName = '';
@@ -89,15 +214,25 @@ async function handleMessage(sock, m, otps) {
             return;
         }
 
-        const senderJid = msg.key.participant || msg.key.remoteJid;
+        if (await handlePendingReminder(sock, from, senderJid, text)) {
+            return;
+        }
+
         let naturalReminder = null;
 
         try {
-            naturalReminder = createNaturalReminders({
-                chatJid: from,
-                creatorJid: senderJid,
-                text
-            });
+            const draft = parseReminderDraft(text);
+
+            if (draft && (!draft.dateParts || !draft.timeParts || !draft.offsets.length)) {
+                await askForMissingReminderInfo(sock, from, getPendingKey(from, senderJid), {
+                    ...draft,
+                    offsets: draft.offsets || [],
+                    updatedAt: Date.now()
+                });
+                return;
+            }
+
+            naturalReminder = createNaturalReminders({ chatJid: from, creatorJid: senderJid, text });
         } catch (reminderError) {
             console.error('[NaturalReminder] Gagal membuat reminder:', reminderError);
             await sock.sendMessage(from, {
@@ -107,14 +242,7 @@ async function handleMessage(sock, m, otps) {
         }
 
         if (naturalReminder) {
-            let responseText = `Siap, aku set ${naturalReminder.created.length} reminder untuk:\n`;
-            responseText += `*${naturalReminder.eventMessage}*\n`;
-            responseText += `Waktu acara: ${formatDateTime(naturalReminder.eventAt.toISOString())}\n\n`;
-            responseText += naturalReminder.created
-                .map(reminder => `• ${formatDateTime(reminder.remindAt)} (*${reminder.id}*)`)
-                .join('\n');
-
-            await sock.sendMessage(from, { text: responseText });
+            await sock.sendMessage(from, { text: buildNaturalReminderResponse(naturalReminder) });
         }
     } catch (err) {
         console.error('[CommandHandler] Error fatal di handler:', err);

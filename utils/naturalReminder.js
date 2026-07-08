@@ -1,6 +1,14 @@
 const { addReminder, formatDateTime } = require('./reminders');
 
 const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DEFAULT_OFFSETS = [
+    { minutes: 24 * 60, label: '1 hari sebelumnya' },
+    { minutes: 12 * 60, label: '12 jam sebelumnya' },
+    { minutes: 6 * 60, label: '6 jam sebelumnya' },
+    { minutes: 3 * 60, label: '3 jam sebelumnya' },
+    { minutes: 60, label: '1 jam sebelumnya' },
+    { minutes: 30, label: '30 menit sebelumnya' }
+];
 const MONTHS = {
     januari: 1,
     jan: 1,
@@ -112,10 +120,9 @@ function parseEventDate(text) {
     }
 
     const namedDate = text.match(/\b(?:tanggal|tgl)\s*(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b/i);
-    if (namedDate) {
+    if (namedDate && MONTHS[namedDate[2].toLowerCase()]) {
         const day = Number(namedDate[1]);
         const month = MONTHS[namedDate[2].toLowerCase()];
-        if (!month) return null;
 
         let year = namedDate[3] ? Number(namedDate[3]) : now.year;
         let eventDate = witaDateToUtcDate(year, month, day, 23, 59);
@@ -166,7 +173,8 @@ function extractEventMessage(text) {
     return cleaned || 'acara';
 }
 
-function parseOffsets(text) {
+function parseOffsets(text, options = {}) {
+    const includeDefault = options.includeDefault !== false;
     const offsets = [];
     const seen = new Set();
     const matches = text.matchAll(/\b(\d+)\s*(hari|jam|menit|min|m)\s*(?:sebelumnya|sebelum)?\b/gi);
@@ -188,37 +196,58 @@ function parseOffsets(text) {
         });
     }
 
-    if (offsets.length === 0) {
+    if (offsets.length === 0 && includeDefault) {
         offsets.push({ minutes: 0, label: 'tepat waktu' });
     }
 
     return offsets.sort((a, b) => b.minutes - a.minutes);
 }
 
-function parseNaturalReminder(text) {
+function hasReminderIntent(text) {
     const normalized = normalizeText(text);
-    if (!/\b(reminder|ingatkan|pengingat)\b/i.test(normalized)) {
+    return /\b(reminder|ingatkan|pengingat)\b/i.test(normalized);
+}
+
+function parseReminderDraft(text) {
+    const normalized = normalizeText(text);
+    if (!hasReminderIntent(normalized)) {
         return null;
     }
 
     const dateParts = parseEventDate(normalized);
     const timeParts = parseHour(normalized);
+    const offsets = parseOffsets(normalized, { includeDefault: false });
 
-    if (!dateParts || !timeParts) {
+    return {
+        dateParts,
+        timeParts,
+        eventMessage: extractEventMessage(text),
+        offsets
+    };
+}
+
+function buildEventDate(dateParts, timeParts) {
+    if (!dateParts || !timeParts) return null;
+    return witaDateToUtcDate(dateParts.year, dateParts.month, dateParts.day, timeParts.hour, timeParts.minute);
+}
+
+function buildReminderPlan({ dateParts, timeParts, eventMessage, offsets }) {
+    const eventAt = buildEventDate(dateParts, timeParts);
+    if (!eventAt) return null;
+
+    if (eventAt.getTime() <= Date.now()) {
         return null;
     }
 
-    const eventAt = witaDateToUtcDate(dateParts.year, dateParts.month, dateParts.day, timeParts.hour, timeParts.minute);
-    const eventMessage = extractEventMessage(text);
-    const offsets = parseOffsets(normalized);
-    const reminders = offsets
+    const chosenOffsets = offsets && offsets.length ? offsets : [{ minutes: 0, label: 'tepat waktu' }];
+    const reminders = chosenOffsets
         .map(offset => ({
             offset,
             remindAt: new Date(eventAt.getTime() - offset.minutes * 60 * 1000)
         }))
         .filter(item => item.remindAt.getTime() > Date.now());
 
-    if (eventAt.getTime() <= Date.now() || reminders.length === 0) {
+    if (reminders.length === 0) {
         return null;
     }
 
@@ -229,12 +258,15 @@ function parseNaturalReminder(text) {
     };
 }
 
-function createNaturalReminders({ chatJid, creatorJid, text }) {
-    const parsed = parseNaturalReminder(text);
-    if (!parsed) return null;
+function parseNaturalReminder(text) {
+    const draft = parseReminderDraft(text);
+    if (!draft || !draft.dateParts || !draft.timeParts) return null;
+    return buildReminderPlan(draft);
+}
 
-    const created = parsed.reminders.map(item => {
-        const message = `Pengingat ${item.offset.label}: ${parsed.eventMessage}\nWaktu acara: ${formatDateTime(parsed.eventAt.toISOString())}`;
+function createRemindersFromPlan({ chatJid, creatorJid, eventAt, eventMessage, reminders }) {
+    const created = reminders.map(item => {
+        const message = `Pengingat ${item.offset.label}: ${eventMessage}\nWaktu acara: ${formatDateTime(eventAt.toISOString())}`;
         return addReminder({
             chatJid,
             creatorJid,
@@ -244,13 +276,33 @@ function createNaturalReminders({ chatJid, creatorJid, text }) {
     });
 
     return {
-        eventAt: parsed.eventAt,
-        eventMessage: parsed.eventMessage,
+        eventAt,
+        eventMessage,
         created
     };
 }
 
+function createNaturalReminders({ chatJid, creatorJid, text }) {
+    const parsed = parseNaturalReminder(text);
+    if (!parsed) return null;
+
+    return createRemindersFromPlan({
+        chatJid,
+        creatorJid,
+        eventAt: parsed.eventAt,
+        eventMessage: parsed.eventMessage,
+        reminders: parsed.reminders
+    });
+}
+
 module.exports = {
+    DEFAULT_OFFSETS,
+    buildReminderPlan,
+    createRemindersFromPlan,
     parseNaturalReminder,
+    parseReminderDraft,
+    parseEventDate,
+    parseHour,
+    parseOffsets,
     createNaturalReminders
 };

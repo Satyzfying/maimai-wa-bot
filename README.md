@@ -118,7 +118,7 @@ Zeabur injects `PORT` automatically, and the bot reads it from `process.env.PORT
 | `.reminder add [time] [message]` | Private chat / Group | Creates a reminder. Supports durations like `30m`, `2h`, `1d`, plus `besok 19:30` or `YYYY-MM-DD HH:mm`. |
 | `.reminder list` | Private chat / Group | Lists your active reminders. |
 | `.reminder delete [ID]` | Private chat / Group | Deletes one of your reminders by ID. |
-| Natural reminder chat | Private chat / Group | Understands Indonesian reminder requests, e.g. `tolong set reminder besok jam 09.30 ada UAS, reminder aku 1 hari, 3 jam, 30 menit sebelumnya`. |
+| Natural reminder chat | Private chat / Group | Understands Indonesian reminder requests and asks follow-up questions when time or reminder offsets are missing, e.g. `tolong reminder tanggal 10 ada UAS`. |
 | `.ping` | Private chat / Group | Checks bot uptime and responsiveness. |
 | `.help` (or `.menu`) | Private chat / Group | Displays the help menu with all available commands and maintenance notes. |
 

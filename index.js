@@ -6,18 +6,22 @@ const fs = require('fs');
 const path = require('path');
 const { handleMessage } = require('./handler');
 const { fetchMaimaiProfile } = require('./utils/scraper');
+const { startReminderScheduler } = require('./utils/reminders');
+const { dataPath, ensureDataDir } = require('./utils/paths');
 
 const otps = new Map();
 let activeSock = null;
 let reconnectDelay = 1000; // starts at 1s, doubles each attempt up to 30s
 
-// Membaca konfigurasi port dari config.json
-let PORT = 3000;
+ensureDataDir();
+
+// Membaca konfigurasi port dari environment Zeabur atau config.json
+let PORT = Number(process.env.PORT) || 3000;
 try {
     const configPath = path.join(__dirname, 'config.json');
     if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        PORT = config.port || 3000;
+        PORT = Number(process.env.PORT) || config.port || 3000;
     }
 } catch (err) {
     console.error('Error loading config for port:', err);
@@ -82,7 +86,7 @@ function sendHtmlResponse(res, statusCode, isSuccess, message) {
 
 async function startBot() {
     // Menyimpan sesi login agar tidak perlu scan QR terus-menerus
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const { state, saveCreds } = await useMultiFileAuthState(dataPath('auth_info_baileys'));
 
     const sock = makeWASocket({
         auth: state,
@@ -138,6 +142,12 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (req.method === 'GET' && req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('maimai-wa-bot is running');
+        return;
+    }
+
     if (req.method === 'POST' && req.url === '/login') {
         let body = '';
         req.on('data', chunk => {
@@ -179,7 +189,7 @@ const server = http.createServer((req, res) => {
                     const profile = await fetchMaimaiProfile(clal, null, userAgent);
 
                     // Memperbarui database lokal players.json
-                    const dbPath = path.join(__dirname, 'players.json');
+                    const dbPath = dataPath('players.json');
                     let players = {};
                     if (fs.existsSync(dbPath)) {
                         try {
@@ -244,4 +254,5 @@ server.listen(PORT, () => {
     console.log(`[HTTP Server] Berjalan lancar di port ${PORT}`);
 });
 
+startReminderScheduler(() => activeSock);
 startBot();

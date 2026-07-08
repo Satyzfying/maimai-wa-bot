@@ -1,5 +1,4 @@
-const fs = require('fs');
-const path = require('path');
+const { getPublicUrl } = require('../utils/config');
 
 module.exports = {
     name: 'login',
@@ -7,21 +6,11 @@ module.exports = {
     needsPrefix: true,
     description: 'Memulai alur masuk akun Maimai DX menggunakan bookmarklet.',
     async execute(sock, from, args, msg, otps) {
-        // Membaca file config.json untuk mendapatkan publicUrl
-        let publicUrl = '';
-        try {
-            const configPath = path.join(__dirname, '..', 'config.json');
-            if (fs.existsSync(configPath)) {
-                const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-                publicUrl = config.publicUrl;
-            }
-        } catch (err) {
-            console.error('[Command Login] Error membaca config:', err);
-        }
+        const publicUrl = getPublicUrl();
 
         if (!publicUrl || publicUrl.includes('ganti-dengan-url-ngrok')) {
             await sock.sendMessage(from, { 
-                text: '*Konfigurasi bot belum lengkap.*\n\nAdministrator harus mengisi URL publik (ngrok) di file `config.json` terlebih dahulu.' 
+                text: '*Konfigurasi bot belum lengkap.*\n\nAdministrator harus mengisi `PUBLIC_URL` di environment Zeabur atau `publicUrl` di `config.json` terlebih dahulu.' 
             });
             return;
         }

@@ -3,3 +3,5 @@ auth_info_baileys/
 .env
 players.json
 music_data.json
+music_data_v2.json
+reminders.json

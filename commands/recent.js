@@ -1,7 +1,7 @@
 const fs = require('fs');
-const path = require('path');
 const { fetchMaimaiRecent, fetchMaimaiRecentDetail } = require('../utils/scraper');
 const { getSongConstant } = require('../utils/music');
+const { dataPath } = require('../utils/paths');
 
 // Menyimpan sesi data playlog terakhir per user di memori
 const recentSessions = new Map();
@@ -41,7 +41,7 @@ module.exports = {
     needsPrefix: true,
     description: 'Menampilkan riwayat bermain Maimai DX NET.',
     async execute(sock, from, args, msg) {
-        const dbPath = path.join(__dirname, '..', 'players.json');
+        const dbPath = dataPath('players.json');
         const senderJid = msg.key.participant || msg.key.remoteJid;
 
         // 1. Membaca database lokal players.json untuk mencari clal cookie

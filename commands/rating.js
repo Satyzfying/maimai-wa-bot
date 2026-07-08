@@ -1,6 +1,6 @@
 const fs = require('fs');
-const path = require('path');
 const { fetchMaimaiProfile } = require('../utils/scraper');
+const { dataPath } = require('../utils/paths');
 
 module.exports = {
     name: 'rating',
@@ -8,7 +8,7 @@ module.exports = {
     needsPrefix: true, // Wajib menggunakan prefix, contoh: .rating
     description: 'Mencari data rating pemain Maimai DX dari database lokal dengan auto-update dari SEGA.',
     async execute(sock, from, args, msg) {
-        const dbPath = path.join(__dirname, '..', 'players.json');
+        const dbPath = dataPath('players.json');
         
         // 1. Membaca database lokal players.json
         let players = {};

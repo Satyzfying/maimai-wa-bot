@@ -12,6 +12,7 @@ A WhatsApp bot built with Node.js that retrieves profile data, ratings, and play
 - **Paginated Play History (`.recent`):** Navigates up to 5 pages of recent play history (25 tracks total) via `.recent page [1-5]`. Page switching is near-instant using an in-memory local cache.
 - **Detailed Score Breakdown (`.recent [1-25]`):** Displays Fast/Late timing counts, Max Combo, Sync status, rating change, and a full judgement table (Tap, Hold, Slide, Touch, Break) formatted as a monospaced grid.
 - **Song Constant Database:** Downloads the music database from the Diving Fish API on startup and uses it to resolve precise difficulty constants (e.g. `12.8` instead of level `12+`).
+- **Persistent WhatsApp Reminders:** Creates personal reminders from private chats or groups and stores them locally in `reminders.json` so they survive bot restarts.
 - **Multi-User and Group Support:** All user data is keyed by unique WhatsApp JID, allowing multiple users in a group to independently link and query their own accounts.
 
 ---
@@ -44,7 +45,7 @@ Copy the generated HTTPS forwarding URL (e.g. `https://abcd-123-45.ngrok-free.de
 
 ### 3. Configure the bot
 
-Edit `config.json` in the project root:
+For local development, edit `config.json` in the project root:
 
 ```json
 {
@@ -53,12 +54,19 @@ Edit `config.json` in the project root:
 }
 ```
 
+On a hosting platform, prefer environment variables:
+
+```env
+PUBLIC_URL=https://your-service.zeabur.app
+DATA_DIR=/data
+```
+
 ---
 
 ## Running the Bot
 
 ```bash
-node index.js
+npm start
 ```
 
 On first run, a QR code will appear in the terminal. Scan it using **Linked Devices** in the WhatsApp mobile app. Once connected, the bot is ready to accept commands.
@@ -67,8 +75,29 @@ To reset the WhatsApp session (e.g. after a 401 disconnect error), delete the se
 
 ```bash
 rm -rf auth_info_baileys
-node index.js
+npm start
 ```
+
+If you run with `DATA_DIR=/data`, delete `/data/auth_info_baileys` instead.
+
+---
+
+## Deploying to Zeabur
+
+1. Push this repository to GitHub.
+2. Create a Zeabur project, then add a service from your GitHub repository.
+3. Generate a public HTTP domain for the service.
+4. Add these variables in the Zeabur service Variables tab:
+
+```env
+PUBLIC_URL=https://your-service.zeabur.app
+DATA_DIR=/data
+```
+
+5. Mount a Zeabur Volume to `/data` so WhatsApp session files, `players.json`, `reminders.json`, and the music cache survive restarts and redeploys.
+6. Deploy, open the service logs, and scan the WhatsApp QR code printed there.
+
+Zeabur injects `PORT` automatically, and the bot reads it from `process.env.PORT`. Zeabur Free Plan services auto-sleep when idle, so a WhatsApp bot that must stay connected continuously is better suited to a paid plan.
 
 ---
 
@@ -84,6 +113,9 @@ node index.js
 | `.top` (or `.b50`) | Private chat / Group | Displays the player's Best 50 DX Rating (Best 15 new + Best 35 old). |
 | `.top old [page]` | Private chat / Group | Displays the Best 35 (old songs) paginated. |
 | `.top refresh` | Private chat / Group | Force-refreshes the Best 50 data from SEGA (bypasses local cache). |
+| `.reminder add [time] [message]` | Private chat / Group | Creates a reminder. Supports durations like `30m`, `2h`, `1d`, plus `besok 19:30` or `YYYY-MM-DD HH:mm`. |
+| `.reminder list` | Private chat / Group | Lists your active reminders. |
+| `.reminder delete [ID]` | Private chat / Group | Deletes one of your reminders by ID. |
 | `.ping` | Private chat / Group | Checks bot uptime and responsiveness. |
 | `.help` (or `.menu`) | Private chat / Group | Displays the help menu with all available commands and maintenance notes. |
 
@@ -103,6 +135,7 @@ maimai-wa-bot/
 │   └── music.js       # Song constant database loader (Diving Fish)
 ├── auth_info_baileys/ # WhatsApp session state (auto-generated, gitignored)
 ├── players.json       # Per-user account data (auto-generated, gitignored)
+├── reminders.json     # Reminder data (auto-generated, gitignored)
 ├── music_data.json    # Song database cache (auto-generated, gitignored)
 ├── config.json        # Bot configuration (publicUrl, port)
 ├── handler.js         # Message dispatcher and command router

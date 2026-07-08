@@ -1,7 +1,7 @@
 const fs = require('fs');
-const path = require('path');
+const { dataPath } = require('./paths');
 
-const cachePath = path.join(__dirname, '..', 'music_data_v2.json');
+const cachePath = dataPath('music_data_v2.json');
 let musicCache = null;
 
 function transformZetarakuToDivingFish(data) {

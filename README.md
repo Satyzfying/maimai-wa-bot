@@ -59,6 +59,7 @@ On a hosting platform, prefer environment variables:
 ```env
 PUBLIC_URL=https://your-service.zeabur.app
 DATA_DIR=/data
+PAIRING_PHONE_NUMBER=6281234567890
 ```
 
 ---
@@ -69,7 +70,7 @@ DATA_DIR=/data
 npm start
 ```
 
-On first run, a QR code will appear in the terminal. Scan it using **Linked Devices** in the WhatsApp mobile app. Once connected, the bot is ready to accept commands.
+On first run, a WhatsApp pairing code will appear in the terminal if `PAIRING_PHONE_NUMBER` is set. Open **WhatsApp > Linked Devices > Link with phone number**, then enter the code from the logs. Once connected, the bot is ready to accept commands.
 
 To reset the WhatsApp session (e.g. after a 401 disconnect error), delete the session directory and restart:
 
@@ -92,10 +93,11 @@ If you run with `DATA_DIR=/data`, delete `/data/auth_info_baileys` instead.
 ```env
 PUBLIC_URL=https://your-service.zeabur.app
 DATA_DIR=/data
+PAIRING_PHONE_NUMBER=6281234567890
 ```
 
 5. Mount a Zeabur Volume to `/data` so WhatsApp session files, `players.json`, `reminders.json`, and the music cache survive restarts and redeploys.
-6. Deploy, open the service logs, and scan the WhatsApp QR code printed there.
+6. Deploy, open the service logs, and enter the WhatsApp pairing code printed there.
 
 Zeabur injects `PORT` automatically, and the bot reads it from `process.env.PORT`. Zeabur Free Plan services auto-sleep when idle, so a WhatsApp bot that must stay connected continuously is better suited to a paid plan.
 

@@ -1,5 +1,4 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const QRCode = require('qrcode-terminal');
 const { Boom } = require('@hapi/boom');
 const http = require('http');
 const fs = require('fs');
@@ -85,24 +84,36 @@ function sendHtmlResponse(res, statusCode, isSuccess, message) {
 }
 
 async function startBot() {
-    // Menyimpan sesi login agar tidak perlu scan QR terus-menerus
+    // Menyimpan sesi login agar tidak perlu pairing ulang terus-menerus
     const { state, saveCreds } = await useMultiFileAuthState(dataPath('auth_info_baileys'));
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false // Kita matikan bawaannya agar bisa diatur custom lewat qrcode-terminal
+        printQRInTerminal: false
     });
 
     activeSock = sock;
 
-    // Event ketika QR Code muncul
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    if (!state.creds.registered) {
+        const phoneNumber = (process.env.PAIRING_PHONE_NUMBER || '').replace(/\D/g, '');
 
-        if (qr) {
-            console.log('--- SILAKAN SCAN QR CODE DI BAWAH INI ---');
-            QRCode.generate(qr, { small: true });
+        if (phoneNumber) {
+            try {
+                const code = await sock.requestPairingCode(phoneNumber);
+                console.log('--- WHATSAPP PAIRING CODE ---');
+                console.log(code.match(/.{1,4}/g)?.join('-') || code);
+                console.log('Buka WhatsApp > Linked Devices > Link with phone number, lalu masukkan kode di atas.');
+            } catch (err) {
+                console.error('[Bot] Gagal meminta pairing code:', err.message);
+            }
+        } else {
+            console.warn('[Bot] Session belum terdaftar. Isi PAIRING_PHONE_NUMBER dengan nomor WhatsApp bot, format kode negara tanpa plus. Contoh: 6281234567890');
         }
+    }
+
+    // Event koneksi WhatsApp
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
 
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;

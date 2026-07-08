@@ -220,6 +220,16 @@ async function parseGeminiResponse(response, label) {
 
 function extractGeminiText(data) {
     if (!data) return null;
+
+    if (data.promptFeedback?.blockReason) {
+        throw new Error(`Permintaan diblokir oleh Gemini (Alasan: ${data.promptFeedback.blockReason})`);
+    }
+
+    const candidate = data.candidates?.[0];
+    if (candidate && candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
+        throw new Error(`Gemini gagal menghasilkan konten (Alasan: ${candidate.finishReason})`);
+    }
+
     if (data.intent) return data;
     if (typeof data.output_text === 'string') return data.output_text;
 
@@ -232,8 +242,8 @@ function extractGeminiText(data) {
         if (textPart) return textPart.text;
     }
 
-    const candidate = data.candidates?.[0]?.content?.parts?.find(part => typeof part.text === 'string');
-    return candidate?.text || null;
+    const textPart = candidate?.content?.parts?.find(part => typeof part.text === 'string');
+    return textPart?.text || null;
 }
 
 function stripJsonFence(value) {

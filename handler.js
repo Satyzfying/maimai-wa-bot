@@ -6,6 +6,7 @@ const {
     createNaturalReminders,
     createRemindersFromPlan,
     parseEventDate,
+    parseAbsoluteReminderTimes,
     parseHour,
     parseOffsets,
     parseReminderDraft
@@ -97,7 +98,7 @@ async function askForMissingReminderInfo(sock, from, key, session) {
     }
 
     await sock.sendMessage(from, {
-        text: `Mau aku ingetin kapan aja?\n\nBiasanya aku pakai ini:\n${defaultOffsetText()}\n\nKalau cocok, balas aja seperti *iya boleh*, *pakai itu*, atau *terserah*. Kalau mau beda, tulis aja misalnya *2 hari, 6 jam, setengah jam sebelumnya*.`
+        text: `Mau aku ingetin kapan aja?\n\nBiasanya aku pakai ini:\n${defaultOffsetText()}\n\nKalau cocok, balas aja seperti *iya boleh*, *pakai itu*, atau *terserah*.\nKalau mau jam tertentu, jawab seperti *jam 6 pagi* atau *malam sebelumnya jam 8*.\nKalau mau countdown custom, tulis seperti *2 hari, 6 jam, setengah jam sebelumnya*.`
     });
 }
 
@@ -118,16 +119,22 @@ async function handlePendingReminder(sock, from, senderJid, text) {
     if (dateParts) session.dateParts = dateParts;
 
     const timeParts = parseHour(text);
-    if (timeParts) session.timeParts = timeParts;
+    if (timeParts && !session.timeParts) session.timeParts = timeParts;
 
     const explicitOffsets = parseOffsets(text, { includeDefault: false });
+    const absoluteReminders = parseAbsoluteReminderTimes(text, session.dateParts, session.timeParts);
     if (explicitOffsets.length) {
         session.offsets = explicitOffsets;
+        session.absoluteReminders = [];
+    } else if (absoluteReminders.length) {
+        session.absoluteReminders = absoluteReminders;
+        session.offsets = [];
     } else if (session.dateParts && session.timeParts && isDefaultOffsetAnswer(text)) {
         session.offsets = DEFAULT_OFFSETS;
+        session.absoluteReminders = [];
     }
 
-    if (!session.dateParts || !session.timeParts || !session.offsets.length) {
+    if (!session.dateParts || !session.timeParts || (!session.offsets.length && !(session.absoluteReminders || []).length)) {
         await askForMissingReminderInfo(sock, from, key, session);
         return true;
     }
@@ -228,10 +235,11 @@ async function handleMessage(sock, m, otps) {
         try {
             const draft = parseReminderDraft(text);
 
-            if (draft && (!draft.dateParts || !draft.timeParts || !draft.offsets.length)) {
+            if (draft && (!draft.dateParts || !draft.timeParts || (!draft.offsets.length && !draft.absoluteReminders.length))) {
                 await askForMissingReminderInfo(sock, from, getPendingKey(from, senderJid), {
                     ...draft,
                     offsets: draft.offsets || [],
+                    absoluteReminders: draft.absoluteReminders || [],
                     updatedAt: Date.now()
                 });
                 return;

@@ -64,7 +64,7 @@ function witaDateToUtcDate(year, month, day, hour, minute) {
 }
 
 function addDaysInWita(parts, days) {
-    const date = witaDateToUtcDate(parts.year, parts.month, parts.day, parts.hour, parts.minute);
+    const date = witaDateToUtcDate(parts.year, parts.month, parts.day, parts.hour || 0, parts.minute || 0);
     date.setUTCDate(date.getUTCDate() + days);
     const wita = new Date(date.getTime() + WITA_OFFSET_MS);
     return {
@@ -94,32 +94,34 @@ function normalizeText(text) {
 
 function parseHour(text) {
     const prefixPeriodMatch = text.match(/\b(pagi|siang|sore|malam)\s*(?:jam|pukul|pk|pkl)?\s*(\d{1,2})(?:[.:](\d{1,2}))?\b/i);
-    const match = prefixPeriodMatch
-        ? [prefixPeriodMatch[0], prefixPeriodMatch[2], prefixPeriodMatch[3], prefixPeriodMatch[1]]
-        : text.match(/\b(?:(?:jam|pukul|pk|pkl)\s*)?(\d{1,2})(?:[.:](\d{1,2}))?\s*(pagi|siang|sore|malam|am|pm|wita)?\b/i);
-    if (!match) return null;
+    const candidates = prefixPeriodMatch
+        ? [[prefixPeriodMatch[0], prefixPeriodMatch[2], prefixPeriodMatch[3], prefixPeriodMatch[1]]]
+        : [...text.matchAll(/\b(?:(?:jam|pukul|pk|pkl)\s*)?(\d{1,2})(?:[.:](\d{1,2}))?\s*(pagi|siang|sore|malam|am|pm|wita)?\b/gi)];
 
-    const hasTimePrefix = /\b(?:jam|pukul|pk|pkl)\b/i.test(match[0]);
-    const hasMinute = match[2] !== undefined;
-    const hasPeriod = match[3] !== undefined;
-    if (!hasTimePrefix && !hasMinute && !hasPeriod) return null;
+    for (const match of candidates) {
+        const hasTimePrefix = /\b(?:jam|pukul|pk|pkl)\b/i.test(match[0]);
+        const hasMinute = match[2] !== undefined;
+        const hasPeriod = match[3] !== undefined;
+        if (!hasTimePrefix && !hasMinute && !hasPeriod) continue;
 
-    let hour = Number(match[1]);
-    const minute = Number(match[2] || 0);
-    const period = (match[3] || '').toLowerCase();
+        let hour = Number(match[1]);
+        const minute = Number(match[2] || 0);
+        const period = (match[3] || '').toLowerCase();
 
-    if (period === 'pagi') {
-        if (hour === 12) hour = 0;
-    } else if (period === 'siang') {
-        if (hour < 11) hour += 12;
-    } else if (period === 'sore' || period === 'malam' || period === 'pm') {
-        if (hour < 12) hour += 12;
-    } else if (period === 'am') {
-        if (hour === 12) hour = 0;
+        if (period === 'pagi') {
+            if (hour === 12) hour = 0;
+        } else if (period === 'siang') {
+            if (hour < 11) hour += 12;
+        } else if (period === 'sore' || period === 'malam' || period === 'pm') {
+            if (hour < 12) hour += 12;
+        } else if (period === 'am') {
+            if (hour === 12) hour = 0;
+        }
+
+        if (hour <= 23 && minute <= 59) return { hour, minute };
     }
 
-    if (hour > 23 || minute > 59) return null;
-    return { hour, minute };
+    return null;
 }
 
 function parseEventDate(text) {
@@ -251,6 +253,72 @@ function parseOffsets(text, options = {}) {
     return offsets.sort((a, b) => b.minutes - a.minutes);
 }
 
+function stripEventDateTime(text) {
+    return text
+        .replace(/\b(?:tanggal|tgl)\s*\d{1,2}\s+[a-z]+(?:\s+\d{4})?\b/gi, ' ')
+        .replace(/\b(?:tanggal|tgl)\s*\d{1,2}(?:[-/\s]+\d{1,2})?(?:[-/\s]+\d{2,4})?\b/gi, ' ')
+        .replace(/\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/g, ' ')
+        .replace(/\b(?:besok|lusa|hari ini|hariini)\b/gi, ' ')
+        .replace(/\b(pagi|siang|sore|malam)\s*(?:jam|pukul|pk|pkl)?\s*\d{1,2}(?:[.:]\d{1,2})?\b/gi, ' ')
+        .replace(/\b(?:jam|pukul|pk|pkl)\s*\d{1,2}(?:[.:]\d{1,2})?\s*(?:pagi|siang|sore|malam|am|pm|wita)?\b/gi, ' ')
+        .replace(/\b\d{1,2}(?:[.:]\d{1,2})\s*(?:pagi|siang|sore|malam|am|pm|wita)?\b/gi, ' ');
+}
+
+function offsetLabelFromDate(remindAt, eventAt) {
+    const diffMinutes = Math.round((eventAt.getTime() - remindAt.getTime()) / 60000);
+    if (diffMinutes <= 0) return 'di waktu yang dipilih';
+    if (diffMinutes % (24 * 60) === 0) return `${diffMinutes / (24 * 60)} hari sebelumnya`;
+    if (diffMinutes % 60 === 0) return `${diffMinutes / 60} jam sebelumnya`;
+    return `${diffMinutes} menit sebelumnya`;
+}
+
+function parseAbsoluteReminderTimes(text, eventDateParts, eventTimeParts) {
+    if (!eventDateParts || !eventTimeParts) return [];
+
+    const normalized = normalizeText(text);
+    const previousPeriodTime = normalized.match(/\b(pagi|siang|sore|malam)\s*(?:sebelumnya|sebelum|sebelom)\s*(?:jam|pukul|pk|pkl)?\s*(\d{1,2})(?:[.:](\d{1,2}))?\b/i);
+    const timeParts = previousPeriodTime
+        ? parseHour(`${previousPeriodTime[1]} jam ${previousPeriodTime[2]}${previousPeriodTime[3] ? `.${previousPeriodTime[3]}` : ''}`)
+        : parseHour(normalized);
+    if (!timeParts) return [];
+
+    const eventAt = buildEventDate(eventDateParts, eventTimeParts);
+    if (!eventAt) return [];
+
+    let targetDateParts = eventDateParts;
+    const previousDay = /\b(?:malam|sore|siang|pagi)?\s*(?:sebelumnya|sebelum|sebelom)\b/i.test(normalized);
+
+    if (previousDay) {
+        targetDateParts = addDaysInWita(eventDateParts, -1);
+    } else {
+        const explicitDateParts = parseEventDate(normalized);
+        if (explicitDateParts) {
+            targetDateParts = explicitDateParts;
+        }
+    }
+
+    let remindAt = witaDateToUtcDate(
+        targetDateParts.year,
+        targetDateParts.month,
+        targetDateParts.day,
+        timeParts.hour,
+        timeParts.minute
+    );
+
+    if (!previousDay && remindAt.getTime() >= eventAt.getTime()) {
+        remindAt = new Date(remindAt.getTime() - 24 * 60 * 60 * 1000);
+    }
+
+    if (remindAt.getTime() <= Date.now() || remindAt.getTime() >= eventAt.getTime()) {
+        return [];
+    }
+
+    return [{
+        remindAt,
+        label: offsetLabelFromDate(remindAt, eventAt)
+    }];
+}
+
 function hasReminderIntent(text) {
     const normalized = normalizeText(text);
     return /\b(reminder|ingatkan|pengingat)\b/i.test(normalized);
@@ -264,13 +332,14 @@ function parseReminderDraft(text) {
 
     const dateParts = parseEventDate(normalized);
     const timeParts = parseHour(normalized);
-    const offsets = parseOffsets(normalized, { includeDefault: false });
+    const offsets = parseOffsets(stripEventDateTime(normalized), { includeDefault: false });
 
     return {
         dateParts,
         timeParts,
         eventMessage: extractEventMessage(text),
-        offsets
+        offsets,
+        absoluteReminders: []
     };
 }
 
@@ -279,7 +348,7 @@ function buildEventDate(dateParts, timeParts) {
     return witaDateToUtcDate(dateParts.year, dateParts.month, dateParts.day, timeParts.hour, timeParts.minute);
 }
 
-function buildReminderPlan({ dateParts, timeParts, eventMessage, offsets }) {
+function buildReminderPlan({ dateParts, timeParts, eventMessage, offsets, absoluteReminders }) {
     const eventAt = buildEventDate(dateParts, timeParts);
     if (!eventAt) return null;
 
@@ -287,13 +356,21 @@ function buildReminderPlan({ dateParts, timeParts, eventMessage, offsets }) {
         return null;
     }
 
-    const chosenOffsets = offsets && offsets.length ? offsets : [{ minutes: 0, label: 'tepat waktu' }];
-    const reminders = chosenOffsets
+    const chosenOffsets = offsets && offsets.length ? offsets : [];
+    const countdownReminders = chosenOffsets
         .map(offset => ({
             offset,
             remindAt: new Date(eventAt.getTime() - offset.minutes * 60 * 1000)
         }))
         .filter(item => item.remindAt.getTime() > Date.now());
+    const fixedTimeReminders = (absoluteReminders || [])
+        .map(item => ({
+            offset: { minutes: null, label: item.label },
+            remindAt: item.remindAt
+        }))
+        .filter(item => item.remindAt.getTime() > Date.now() && item.remindAt.getTime() < eventAt.getTime());
+    const reminders = [...countdownReminders, ...fixedTimeReminders]
+        .sort((a, b) => a.remindAt.getTime() - b.remindAt.getTime());
 
     if (reminders.length === 0) {
         return null;
@@ -350,6 +427,7 @@ module.exports = {
     parseNaturalReminder,
     parseReminderDraft,
     parseEventDate,
+    parseAbsoluteReminderTimes,
     parseHour,
     parseOffsets,
     createNaturalReminders

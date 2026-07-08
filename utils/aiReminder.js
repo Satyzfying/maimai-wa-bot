@@ -92,10 +92,8 @@ function schema() {
 
 function nullable(schemaPart) {
     return {
-        anyOf: [
-            schemaPart,
-            { type: 'null' }
-        ]
+        ...schemaPart,
+        nullable: true
     };
 }
 
@@ -139,8 +137,7 @@ async function parseWithAI({ text, pendingSession }) {
 
     for (const request of [
         () => callGenerateContent(apiKey, prompt, true),
-        () => callGenerateContent(apiKey, prompt, false),
-        () => callInteractions(apiKey, prompt)
+        () => callGenerateContent(apiKey, prompt, false)
     ]) {
         try {
             const data = await request();
@@ -200,27 +197,6 @@ async function callGenerateContent(apiKey, prompt, useSchema) {
         body
     );
     return data;
-}
-
-async function callInteractions(apiKey, prompt) {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey
-        },
-        body: JSON.stringify({
-            model: DEFAULT_MODEL,
-            input: prompt,
-            response_format: {
-                type: 'text',
-                mime_type: 'application/json',
-                schema: schema()
-            }
-        })
-    });
-
-    return parseGeminiResponse(response, 'Gemini interactions');
 }
 
 async function postJson(url, body) {

@@ -52,7 +52,7 @@ function defaultOffsetText() {
 }
 
 function isDefaultOffsetAnswer(text) {
-    return /\b(standar|default|iya|ya|boleh|oke|ok|sip|gas)\b/i.test(text);
+    return /\b(standar|default|iya|ya|boleh|oke|ok|sip|gas|bebas|terserah|yang tadi|pakai itu|pake itu|pakai aja|pake aja|ikutin aja|rekomendasi)\b/i.test(text);
 }
 
 function isCancelAnswer(text) {
@@ -91,13 +91,13 @@ async function askForMissingReminderInfo(sock, from, key, session) {
 
     if (!session.timeParts) {
         await sock.sendMessage(from, {
-            text: `Mau di-remind jam berapa untuk *${session.eventMessage}*?\nContoh: *jam 09.30 pagi* atau *pukul 19:00*.`
+            text: `Untuk *${session.eventMessage}*, acaranya jam berapa?\nBisa jawab santai, misalnya *9.30 pagi*, *jam 19:00*, atau *malam jam 8*.`
         });
         return;
     }
 
     await sock.sendMessage(from, {
-        text: `Mau aku kasih reminder kapan aja?\n\nPaket standar:\n${defaultOffsetText()}\n\nBalas *standar* untuk pakai itu, atau tulis sendiri seperti *2 hari, 6 jam, 1 jam sebelumnya*.`
+        text: `Mau aku ingetin kapan aja?\n\nBiasanya aku pakai ini:\n${defaultOffsetText()}\n\nKalau cocok, balas aja seperti *iya boleh*, *pakai itu*, atau *terserah*. Kalau mau beda, tulis aja misalnya *2 hari, 6 jam, setengah jam sebelumnya*.`
     });
 }
 

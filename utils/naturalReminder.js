@@ -80,13 +80,29 @@ function normalizeText(text) {
     return text
         .toLowerCase()
         .replace(/[，]/g, ',')
+        .replace(/\bsetengah\s+jam\b/g, '30 menit')
+        .replace(/\bseperempat\s+jam\b/g, '15 menit')
+        .replace(/\bsejam\b/g, '1 jam')
+        .replace(/\bsehari\b/g, '1 hari')
+        .replace(/\bbesok pagi\b/g, 'besok')
+        .replace(/\bbesok siang\b/g, 'besok')
+        .replace(/\bbesok sore\b/g, 'besok')
+        .replace(/\bbesok malam\b/g, 'besok')
         .replace(/\s+/g, ' ')
         .trim();
 }
 
 function parseHour(text) {
-    const match = text.match(/\b(?:jam|pukul)\s*(\d{1,2})(?:[.:](\d{1,2}))?\s*(pagi|siang|sore|malam)?\b/i);
+    const prefixPeriodMatch = text.match(/\b(pagi|siang|sore|malam)\s*(?:jam|pukul|pk|pkl)?\s*(\d{1,2})(?:[.:](\d{1,2}))?\b/i);
+    const match = prefixPeriodMatch
+        ? [prefixPeriodMatch[0], prefixPeriodMatch[2], prefixPeriodMatch[3], prefixPeriodMatch[1]]
+        : text.match(/\b(?:(?:jam|pukul|pk|pkl)\s*)?(\d{1,2})(?:[.:](\d{1,2}))?\s*(pagi|siang|sore|malam|am|pm|wita)?\b/i);
     if (!match) return null;
+
+    const hasTimePrefix = /\b(?:jam|pukul|pk|pkl)\b/i.test(match[0]);
+    const hasMinute = match[2] !== undefined;
+    const hasPeriod = match[3] !== undefined;
+    if (!hasTimePrefix && !hasMinute && !hasPeriod) return null;
 
     let hour = Number(match[1]);
     const minute = Number(match[2] || 0);
@@ -96,8 +112,10 @@ function parseHour(text) {
         if (hour === 12) hour = 0;
     } else if (period === 'siang') {
         if (hour < 11) hour += 12;
-    } else if (period === 'sore' || period === 'malam') {
+    } else if (period === 'sore' || period === 'malam' || period === 'pm') {
         if (hour < 12) hour += 12;
+    } else if (period === 'am') {
+        if (hour === 12) hour = 0;
     }
 
     if (hour > 23 || minute > 59) return null;
@@ -117,6 +135,21 @@ function parseEventDate(text) {
 
     if (/\bhari ini\b|\bhariini\b/i.test(text)) {
         return now;
+    }
+
+    const slashDate = text.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
+    if (slashDate) {
+        const day = Number(slashDate[1]);
+        const month = Number(slashDate[2]);
+        let year = slashDate[3] ? Number(slashDate[3]) : now.year;
+        if (year < 100) year += 2000;
+        let eventDate = witaDateToUtcDate(year, month, day, 23, 59);
+
+        if (!slashDate[3] && eventDate.getTime() < Date.now()) {
+            year += 1;
+        }
+
+        return { year, month, day };
     }
 
     const namedDate = text.match(/\b(?:tanggal|tgl)\s*(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b/i);
@@ -158,9 +191,10 @@ function extractEventMessage(text) {
         .replace(/\b(?:reminder|ingatkan)\s+(?:aku|saya|gua|gue|gw|ku)\b/gi, ' ')
         .replace(/\b(?:di|pada)?\s*(?:tanggal|tgl)\s*\d{1,2}(?:[-/\s]+\d{1,2})?(?:[-/\s]+\d{4})?\b/gi, ' ')
         .replace(/\b(?:besok|lusa|hari ini|hariini)\b/gi, ' ')
-        .replace(/\b(?:jam|pukul)\s*\d{1,2}(?:[.:]\d{1,2})?\s*(?:pagi|siang|sore|malam)?\b/gi, ' ')
-        .replace(/\b\d+\s*(?:hari|jam|menit|min|m)\s*(?:sebelumnya|sebelum)?\b/gi, ' ')
+        .replace(/\b(?:(?:jam|pukul|pk|pkl)\s*)?\d{1,2}(?:[.:]\d{1,2})?\s*(?:pagi|siang|sore|malam|am|pm|wita)\b/gi, ' ')
+        .replace(/\b\d+\s*(?:hari|jam|menit|mnt|min|m)\s*(?:sebelumnya|sebelum|sebelom)?\b/gi, ' ')
         .replace(/\b(?:sebelumnya|sebelum)\b/gi, ' ')
+        .replace(/\b(?:setengah jam|seperempat jam|sejam|sehari)\b/gi, ' ')
         .replace(/[,.;]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
@@ -177,7 +211,7 @@ function parseOffsets(text, options = {}) {
     const includeDefault = options.includeDefault !== false;
     const offsets = [];
     const seen = new Set();
-    const matches = text.matchAll(/\b(\d+)\s*(hari|jam|menit|min|m)\s*(?:sebelumnya|sebelum)?\b/gi);
+    const matches = text.matchAll(/\b(\d+)\s*(hari|jam|menit|mnt|min|m)\s*(?:sebelumnya|sebelum|sebelom)?\b/gi);
 
     for (const match of matches) {
         const value = Number(match[1]);
@@ -194,6 +228,20 @@ function parseOffsets(text, options = {}) {
                     ? `${value} jam sebelumnya`
                     : `${value} menit sebelumnya`
         });
+    }
+
+    const phraseOffsets = [
+        { pattern: /\b30 menit\b|\bsetengah jam\b/i, minutes: 30, label: '30 menit sebelumnya' },
+        { pattern: /\b15 menit\b|\bseperempat jam\b/i, minutes: 15, label: '15 menit sebelumnya' },
+        { pattern: /\b1 jam\b|\bsejam\b/i, minutes: 60, label: '1 jam sebelumnya' },
+        { pattern: /\b1 hari\b|\bsehari\b/i, minutes: 24 * 60, label: '1 hari sebelumnya' }
+    ];
+
+    for (const phrase of phraseOffsets) {
+        if (phrase.pattern.test(text) && !seen.has(phrase.minutes)) {
+            seen.add(phrase.minutes);
+            offsets.push({ minutes: phrase.minutes, label: phrase.label });
+        }
     }
 
     if (offsets.length === 0 && includeDefault) {

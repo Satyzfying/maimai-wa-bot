@@ -17,6 +17,21 @@ function usageText() {
         `_Waktu ditampilkan dalam WITA._`;
 }
 
+function isOwner(senderJid) {
+    const allowList = (process.env.REMINDER_OWNER_JIDS || process.env.OWNER_JIDS || '')
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean);
+
+    if (allowList.length === 0) return true;
+
+    const senderNumber = senderJid.split('@')[0].replace(/\D/g, '');
+    return allowList.some(item => {
+        const normalized = item.includes('@') ? item.split('@')[0] : item;
+        return normalized.replace(/\D/g, '') === senderNumber;
+    });
+}
+
 module.exports = {
     name: 'reminder',
     aliases: ['remind', 'ingatkan'],
@@ -31,6 +46,10 @@ module.exports = {
         }
 
         const senderJid = msg.key.participant || msg.key.remoteJid;
+        if (!isOwner(senderJid)) {
+            return;
+        }
+
         const subCommand = (args[0] || '').toLowerCase();
 
         if (!subCommand || subCommand === 'help') {

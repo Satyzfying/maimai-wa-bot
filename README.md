@@ -59,6 +59,7 @@ On a hosting platform, prefer environment variables:
 PUBLIC_URL=https://your-service.zeabur.app
 DATA_DIR=/data
 PAIRING_PHONE_NUMBER=6281234567890
+REMINDER_OWNER_JIDS=6281234567890
 ```
 
 ---
@@ -93,6 +94,7 @@ If you run with `DATA_DIR=/data`, delete `/data/auth_info_baileys` instead.
 PUBLIC_URL=https://your-service.zeabur.app
 DATA_DIR=/data
 PAIRING_PHONE_NUMBER=6281234567890
+REMINDER_OWNER_JIDS=6281234567890
 ```
 
 5. Mount a Zeabur Volume to `/data` so WhatsApp session files, `players.json`, `reminders.json`, and the music cache survive restarts and redeploys.

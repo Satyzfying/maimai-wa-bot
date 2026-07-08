@@ -203,7 +203,13 @@ function extractEventMessage(text) {
 
     const adaMatch = text.match(/\bada\s+(.+?)(?:,\s*(?:tolong\s*)?(?:reminder|ingatkan)|$)/i);
     if (adaMatch && adaMatch[1].trim()) {
-        return adaMatch[1].replace(/[,.;]+$/g, '').trim();
+        return adaMatch[1]
+            .replace(/\b\d+\s*(?:hari|jam|menit|mnt|min|m)\s*(?:sebelumnya|sebelum|sebelom)?\b/gi, ' ')
+            .replace(/\b(?:sebelumnya|sebelum|sebelom)\b/gi, ' ')
+            .replace(/\b(?:setengah jam|seperempat jam|sejam|sehari)\b/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/[,.;]+$/g, '');
     }
 
     return cleaned || 'acara';
@@ -383,7 +389,58 @@ function buildReminderPlan({ dateParts, timeParts, eventMessage, offsets, absolu
     };
 }
 
+function nextDateForTime(timeParts, dayOffset = 0) {
+    const now = nowInWitaParts();
+    let candidate = witaDateToUtcDate(now.year, now.month, now.day, timeParts.hour, timeParts.minute);
+    candidate.setUTCDate(candidate.getUTCDate() + dayOffset);
+
+    if (candidate.getTime() <= Date.now()) {
+        candidate.setUTCDate(candidate.getUTCDate() + 1);
+    }
+
+    return candidate;
+}
+
+function parseRecurringReminder(text) {
+    const normalized = normalizeText(text);
+    if (!hasReminderIntent(normalized) || !/\b(tiap|setiap)\b/i.test(normalized)) {
+        return null;
+    }
+
+    const timeParts = parseHour(normalized);
+    if (!timeParts) return null;
+
+    let repeat = null;
+    if (/\b(tiap|setiap)\s+hari\b/i.test(normalized)) {
+        repeat = { unit: 'day', value: 1, label: 'setiap hari' };
+    } else if (/\b(tiap|setiap)\s+minggu\b/i.test(normalized)) {
+        repeat = { unit: 'week', value: 1, label: 'setiap minggu' };
+    }
+
+    if (!repeat) return null;
+
+    const message = extractEventMessage(text)
+        .replace(/\b(?:tiap|setiap)\s+(?:hari|minggu)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() || 'rutinitas';
+
+    const remindAt = nextDateForTime(timeParts).toISOString();
+    return {
+        eventAt: new Date(remindAt),
+        eventMessage: message,
+        reminders: [{
+            offset: { minutes: null, label: repeat.label },
+            remindAt: new Date(remindAt),
+            repeat
+        }],
+        repeat
+    };
+}
+
 function parseNaturalReminder(text) {
+    const recurring = parseRecurringReminder(text);
+    if (recurring) return recurring;
+
     const draft = parseReminderDraft(text);
     if (!draft || !draft.dateParts || !draft.timeParts) return null;
     return buildReminderPlan(draft);
@@ -396,7 +453,8 @@ function createRemindersFromPlan({ chatJid, creatorJid, eventAt, eventMessage, r
             chatJid,
             creatorJid,
             message,
-            remindAt: item.remindAt.toISOString()
+            remindAt: item.remindAt.toISOString(),
+            repeat: item.repeat || null
         });
     });
 
@@ -425,6 +483,7 @@ module.exports = {
     buildReminderPlan,
     createRemindersFromPlan,
     parseNaturalReminder,
+    parseRecurringReminder,
     parseReminderDraft,
     parseEventDate,
     parseAbsoluteReminderTimes,

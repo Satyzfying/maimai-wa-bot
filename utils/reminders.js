@@ -32,7 +32,7 @@ function createId() {
     return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-function addReminder({ chatJid, creatorJid, message, remindAt }) {
+function addReminder({ chatJid, creatorJid, message, remindAt, repeat }) {
     const db = readDb();
     const activeCount = db.items.filter(item => item.creatorJid === creatorJid).length;
 
@@ -51,6 +51,7 @@ function addReminder({ chatJid, creatorJid, message, remindAt }) {
         creatorJid,
         message,
         remindAt,
+        repeat: repeat || null,
         createdAt: new Date().toISOString()
     };
 
@@ -67,6 +68,33 @@ function listReminders(creatorJid, chatJid) {
         .sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
 }
 
+function updateReminder(creatorJid, id, updates) {
+    const normalizedId = id.toUpperCase();
+    const db = readDb();
+    const reminder = db.items.find(item => item.creatorJid === creatorJid && item.id === normalizedId);
+
+    if (!reminder) {
+        return null;
+    }
+
+    Object.assign(reminder, updates, { updatedAt: new Date().toISOString() });
+    db.items.sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
+    writeDb(db);
+    return reminder;
+}
+
+function findReminderByText(creatorJid, chatJid, query) {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return null;
+
+    return listReminders(creatorJid, chatJid)
+        .find(item => item.id.toLowerCase() === needle || item.message.toLowerCase().includes(needle)) || null;
+}
+
+function getNextReminder(creatorJid, chatJid) {
+    return listReminders(creatorJid, chatJid)[0] || null;
+}
+
 function removeReminder(creatorJid, id) {
     const normalizedId = id.toUpperCase();
     const db = readDb();
@@ -79,6 +107,31 @@ function removeReminder(creatorJid, id) {
     const [removed] = db.items.splice(index, 1);
     writeDb(db);
     return removed;
+}
+
+function advanceRepeat(reminder) {
+    if (!reminder.repeat) return null;
+
+    const nextDate = new Date(reminder.remindAt);
+    const value = Number(reminder.repeat.value || 1);
+
+    if (reminder.repeat.unit === 'day') {
+        nextDate.setUTCDate(nextDate.getUTCDate() + value);
+    } else if (reminder.repeat.unit === 'week') {
+        nextDate.setUTCDate(nextDate.getUTCDate() + value * 7);
+    } else {
+        return null;
+    }
+
+    while (nextDate.getTime() <= Date.now()) {
+        if (reminder.repeat.unit === 'day') {
+            nextDate.setUTCDate(nextDate.getUTCDate() + value);
+        } else if (reminder.repeat.unit === 'week') {
+            nextDate.setUTCDate(nextDate.getUTCDate() + value * 7);
+        }
+    }
+
+    return nextDate.toISOString();
 }
 
 function formatDateTime(isoString) {
@@ -185,7 +238,17 @@ async function sendDueReminders(sock) {
                 });
 
                 const latestDb = readDb();
-                latestDb.items = latestDb.items.filter(reminder => reminder.id !== item.id);
+                const latestItem = latestDb.items.find(reminder => reminder.id === item.id);
+                const nextRepeatAt = latestItem ? advanceRepeat(latestItem) : null;
+
+                if (latestItem && nextRepeatAt) {
+                    latestItem.remindAt = nextRepeatAt;
+                    latestItem.updatedAt = new Date().toISOString();
+                } else {
+                    latestDb.items = latestDb.items.filter(reminder => reminder.id !== item.id);
+                }
+
+                latestDb.items.sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
                 writeDb(latestDb);
             } catch (err) {
                 console.error(`[Reminder] Gagal mengirim reminder ${item.id}:`, err.message);
@@ -211,8 +274,11 @@ function startReminderScheduler(getSock) {
 
 module.exports = {
     addReminder,
+    findReminderByText,
+    getNextReminder,
     listReminders,
     removeReminder,
+    updateReminder,
     formatDateTime,
     parseReminderArgs,
     startReminderScheduler

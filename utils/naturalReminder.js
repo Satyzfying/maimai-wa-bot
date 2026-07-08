@@ -190,7 +190,7 @@ function extractEventMessage(text) {
     const cleaned = text
         .replace(/\b(?:tolong|pls|please)\b/gi, ' ')
         .replace(/\b(?:set|buat|bikin|pasang)\s+(?:reminder|pengingat)\b/gi, ' ')
-        .replace(/\b(?:reminder|ingatkan)\s+(?:aku|saya|gua|gue|gw|ku)\b/gi, ' ')
+        .replace(/\b(?:reminder|remind|ingatkan|ingetin|ingetim|ingat|jadwalin|jadwalkan)\s+(?:aku|saya|gua|gue|gw|ku)?\b/gi, ' ')
         .replace(/\b(?:di|pada)?\s*(?:tanggal|tgl)\s*\d{1,2}(?:[-/\s]+\d{1,2})?(?:[-/\s]+\d{4})?\b/gi, ' ')
         .replace(/\b(?:besok|lusa|hari ini|hariini)\b/gi, ' ')
         .replace(/\b(?:(?:jam|pukul|pk|pkl)\s*)?\d{1,2}(?:[.:]\d{1,2})?\s*(?:pagi|siang|sore|malam|am|pm|wita)\b/gi, ' ')
@@ -201,7 +201,7 @@ function extractEventMessage(text) {
         .replace(/\s+/g, ' ')
         .trim();
 
-    const adaMatch = text.match(/\bada\s+(.+?)(?:,\s*(?:tolong\s*)?(?:reminder|ingatkan)|$)/i);
+    const adaMatch = text.match(/\bada\s+(.+?)(?:,\s*(?:tolong\s*)?(?:reminder|remind|ingatkan|ingetin|ingetim|ingat)|$)/i);
     if (adaMatch && adaMatch[1].trim()) {
         return adaMatch[1]
             .replace(/\b\d+\s*(?:hari|jam|menit|mnt|min|m)\s*(?:sebelumnya|sebelum|sebelom)?\b/gi, ' ')
@@ -278,15 +278,51 @@ function offsetLabelFromDate(remindAt, eventAt) {
     return `${diffMinutes} menit sebelumnya`;
 }
 
+function parseAbsoluteTimeCandidates(text) {
+    const candidates = [];
+    const normalized = normalizeText(text);
+
+    for (const match of normalized.matchAll(/\bsetengah\s+(\d{1,2})\s*(pagi|siang|sore|malam|am|pm)?\b/gi)) {
+        let hour = Number(match[1]) - 1;
+        const period = (match[2] || '').toLowerCase();
+
+        if (period === 'siang') {
+            if (hour < 11) hour += 12;
+        } else if (period === 'sore' || period === 'malam' || period === 'pm') {
+            if (hour < 12) hour += 12;
+        } else if (period === 'am' || period === 'pagi') {
+            if (hour === 12) hour = 0;
+        }
+
+        if (hour >= 0 && hour <= 23) {
+            candidates.push({ hour, minute: 30 });
+        }
+    }
+
+    for (const match of normalized.matchAll(/\b(?:jam|pukul|pk|pkl)\s*(\d{1,2})(?:[.:](\d{1,2}))?\s*(pagi|siang|sore|malam|am|pm|wita)?\b/gi)) {
+        const parsed = parseHour(match[0]);
+        if (parsed) candidates.push(parsed);
+    }
+
+    const seen = new Set();
+    return candidates.filter(item => {
+        const key = `${item.hour}:${item.minute}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 function parseAbsoluteReminderTimes(text, eventDateParts, eventTimeParts) {
     if (!eventDateParts || !eventTimeParts) return [];
 
     const normalized = normalizeText(text);
     const previousPeriodTime = normalized.match(/\b(pagi|siang|sore|malam)\s*(?:sebelumnya|sebelum|sebelom)\s*(?:jam|pukul|pk|pkl)?\s*(\d{1,2})(?:[.:](\d{1,2}))?\b/i);
-    const timeParts = previousPeriodTime
+    const timeCandidates = previousPeriodTime
         ? parseHour(`${previousPeriodTime[1]} jam ${previousPeriodTime[2]}${previousPeriodTime[3] ? `.${previousPeriodTime[3]}` : ''}`)
-        : parseHour(normalized);
-    if (!timeParts) return [];
+        : parseAbsoluteTimeCandidates(normalized);
+    const candidates = Array.isArray(timeCandidates) ? timeCandidates : [timeCandidates].filter(Boolean);
+    if (!candidates.length) return [];
 
     const eventAt = buildEventDate(eventDateParts, eventTimeParts);
     if (!eventAt) return [];
@@ -303,31 +339,35 @@ function parseAbsoluteReminderTimes(text, eventDateParts, eventTimeParts) {
         }
     }
 
-    let remindAt = witaDateToUtcDate(
-        targetDateParts.year,
-        targetDateParts.month,
-        targetDateParts.day,
-        timeParts.hour,
-        timeParts.minute
-    );
+    return candidates
+        .map(timeParts => {
+            let remindAt = witaDateToUtcDate(
+                targetDateParts.year,
+                targetDateParts.month,
+                targetDateParts.day,
+                timeParts.hour,
+                timeParts.minute
+            );
 
-    if (!previousDay && remindAt.getTime() >= eventAt.getTime()) {
-        remindAt = new Date(remindAt.getTime() - 24 * 60 * 60 * 1000);
-    }
+            if (!previousDay && remindAt.getTime() >= eventAt.getTime()) {
+                remindAt = new Date(remindAt.getTime() - 24 * 60 * 60 * 1000);
+            }
 
-    if (remindAt.getTime() <= Date.now() || remindAt.getTime() >= eventAt.getTime()) {
-        return [];
-    }
+            if (remindAt.getTime() <= Date.now() || remindAt.getTime() >= eventAt.getTime()) {
+                return null;
+            }
 
-    return [{
-        remindAt,
-        label: offsetLabelFromDate(remindAt, eventAt)
-    }];
+            return {
+                remindAt,
+                label: offsetLabelFromDate(remindAt, eventAt)
+            };
+        })
+        .filter(Boolean);
 }
 
 function hasReminderIntent(text) {
     const normalized = normalizeText(text);
-    return /\b(reminder|ingatkan|pengingat)\b/i.test(normalized);
+    return /\b(reminder|remind|ingatkan|ingetin|ingetim|ingat|pengingat|jadwalin|jadwalkan)\b/i.test(normalized);
 }
 
 function parseReminderDraft(text) {

@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 /**
  * CookieJar class untuk menangani cookies lintas request secara dinamis.
  */
@@ -543,102 +545,133 @@ async function fetchMaimaiMusicBest(clal, savedSessionCookie, userAgent, preferr
     const ua = userAgent || DEFAULT_USER_AGENT;
     const errors = [];
 
-    // Difficulty indices: 2=Expert, 3=Master, 4=Re:Master
-    const DIFFS = [
-        { id: 2, name: 'expert' },
-        { id: 3, name: 'master' },
-        { id: 4, name: 'remaster' }
-    ];
+    // Helper to calculate rating
+    function calcLocalRating(constant, achievement) {
+        let factor = 0;
+        if (achievement >= 100.5000) factor = 22.4;
+        else if (achievement >= 100.0000) factor = 21.6;
+        else if (achievement >= 99.5000) factor = 21.1;
+        else if (achievement >= 99.0000) factor = 20.8;
+        else if (achievement >= 98.0000) factor = 20.3;
+        else if (achievement >= 97.0000) factor = 20.0;
+        else if (achievement >= 94.0000) factor = 16.8;
+        else if (achievement >= 90.0000) factor = 15.2;
+        else if (achievement >= 80.0000) factor = 13.6;
+        else if (achievement >= 75.0000) factor = 12.0;
+        else if (achievement >= 70.0000) factor = 11.2;
+        else if (achievement >= 60.0000) factor = 9.6;
+        else if (achievement >= 50.0000) factor = 8.0;
+        
+        return Math.floor(constant * factor * Math.min(achievement, 100.5000) / 100.0);
+    }
+
+    // Helper to parse each block
+    function parseSection(sectionHtml, isNew) {
+        // Split by any class attribute containing w_450 (layout-independent)
+        const blocks = sectionHtml.split(/class="[^"]*w_450[^"]*"/);
+        const list = [];
+        for (let i = 1; i < blocks.length; i++) {
+            const block = blocks[i];
+            
+            let title = '';
+            const titleMatch = block.match(/class="[^"]*music_name_block[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+            if (titleMatch) title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
+            if (!title) continue;
+            
+            let achievement = 0;
+            const achMatch = block.match(/(\d+\.\d+)%/);
+            if (achMatch) {
+                achievement = parseFloat(achMatch[1]);
+            }
+            
+            let diffName = '';
+            const diffMatch = block.match(/(diff|music)_([a-zA-Z]+)\.png/);
+            if (diffMatch) {
+                diffName = diffMatch[2].toLowerCase();
+            }
+            
+            let constant = 0;
+            const constMatch = block.match(/<div class="[^"]*f_r p_r_5 f_11 f_b[^"]*">([\s\S]*?)<\/div>/);
+            if (constMatch) {
+                constant = parseFloat(constMatch[1].trim()) || 0;
+            } else {
+                const constMatchAlt = block.match(/<div class="f_r p_r_5 f_11 f_b">([\s\S]*?)<\/div>/);
+                if (constMatchAlt) constant = parseFloat(constMatchAlt[1].trim()) || 0;
+            }
+            
+            let type = (block.includes('music_standard.png') || block.includes('_standard')) ? 'SD' : 'DX';
+            
+            let rank = '';
+            const rankMatch = block.match(/music_icon_([a-zA-Z0-9_]+)\.png/);
+            if (rankMatch) rank = rankMatch[1].toUpperCase().replace('PLUS', '+').replace('P', '+');
+            
+            const songRating = calcLocalRating(constant, achievement);
+            
+            list.push({
+                title,
+                type,
+                difficulty: diffName, // basic, advanced, expert, master, remaster
+                achievement,
+                rank,
+                constant,
+                songRating,
+                isNew
+            });
+        }
+        return list;
+    }
 
     for (const domain of domains) {
         try {
-            const allScores = [];
-            let validSessionCookie = savedSessionCookie;
-
-            // 1. Fetch the first difficulty (Expert) sequentially to validate/refresh session
-            const firstDiff = DIFFS[0];
-            console.log(`[Scraper] [MusicBest] Fetching diff=${firstDiff.id} (${firstDiff.name}) from ${domain}`);
-            const firstUrl = `https://${domain}/maimai-mobile/record/musicGenre/search/?genre=99&diff=${firstDiff.id}`;
-            const referer = `https://${domain}/maimai-mobile/record/`;
+            console.log(`[Scraper] [MusicBest] Fetching ratingTargetMusic from ${domain}`);
+            const targetUrl = `https://${domain}/maimai-mobile/home/ratingTargetMusic/`;
+            const referer = `https://${domain}/maimai-mobile/home/`;
             
-            const firstResult = await fetchMaimaiPage(
-                domain, clal, validSessionCookie, firstUrl, referer, ua
+            const { html, newSessionCookie } = await fetchMaimaiPage(
+                domain, clal, savedSessionCookie, targetUrl, referer, ua
             );
             
-            let latestNewSessionCookie = firstResult.newSessionCookie || null;
-            if (latestNewSessionCookie) {
-                validSessionCookie = latestNewSessionCookie;
-            }
-
-            // Parse first difficulty
-            const firstBlocks = firstResult.html.split('class="w_450 m_15 p_r f_0"');
-            console.log(`[Scraper] [MusicBest] diff=${firstDiff.name}: found ${firstBlocks.length - 1} cards.`);
-            for (let i = 1; i < firstBlocks.length; i++) {
-                const block = firstBlocks[i];
-                let title = '';
-                const titleMatch = block.match(/class="[^"]*music_name_block[^"]*"[^>]*>([\s\S]*?)<\/div>/);
-                if (titleMatch) title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
-                if (!title) continue;
-
-                let type = (block.includes('music_standard.png') || block.includes('_standard')) ? 'SD' : 'DX';
-                let achievement = 0;
-                const achMatch = block.match(/class="[^"]*music_achievement_txt[^"]*"[^>]*>([\s\S]*?)<\/div>/);
-                if (achMatch) {
-                    const rawAch = achMatch[1].replace(/<[^>]*>/g, '').replace(/%/g, '').trim();
-                    achievement = parseFloat(rawAch);
-                }
-                if (isNaN(achievement) || achievement === 0) continue;
-
-                let rank = '';
-                const rankMatch = block.match(/music_icon_([a-zA-Z0-9_]+)\.png/);
-                if (rankMatch) rank = rankMatch[1].toUpperCase().replace('PLUS', '+').replace('P', '+');
-
-                allScores.push({ title, type, difficulty: firstDiff.name, achievement, rank });
-            }
-
-            // 2. Fetch the remaining difficulties (Master, Re:Master) in parallel since session is validated
-            const remainingDiffs = DIFFS.slice(1);
-            const fetchPromises = remainingDiffs.map(async (diff) => {
-                console.log(`[Scraper] [MusicBest] Fetching diff=${diff.id} (${diff.name}) in parallel from ${domain}`);
-                const diffUrl = `https://${domain}/maimai-mobile/record/musicGenre/search/?genre=99&diff=${diff.id}`;
-                const { html } = await fetchMaimaiPage(
-                    domain, clal, validSessionCookie, diffUrl, referer, ua
-                );
-                return { diff, html };
-            });
-
-            const remainingResults = await Promise.all(fetchPromises);
-
-            // Parse remaining difficulties
-            for (const { diff, html } of remainingResults) {
-                const blocks = html.split('class="w_450 m_15 p_r f_0"');
-                console.log(`[Scraper] [MusicBest] diff=${diff.name}: found ${blocks.length - 1} cards.`);
-                
-                for (let i = 1; i < blocks.length; i++) {
-                    const block = blocks[i];
-                    let title = '';
-                    const titleMatch = block.match(/class="[^"]*music_name_block[^"]*"[^>]*>([\s\S]*?)<\/div>/);
-                    if (titleMatch) title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]*>/g, '').trim());
-                    if (!title) continue;
-
-                    let type = (block.includes('music_standard.png') || block.includes('_standard')) ? 'SD' : 'DX';
-                    let achievement = 0;
-                    const achMatch = block.match(/class="[^"]*music_achievement_txt[^"]*"[^>]*>([\s\S]*?)<\/div>/);
-                    if (achMatch) {
-                        const rawAch = achMatch[1].replace(/<[^>]*>/g, '').replace(/%/g, '').trim();
-                        achievement = parseFloat(rawAch);
-                    }
-                    if (isNaN(achievement) || achievement === 0) continue;
-
-                    let rank = '';
-                    const rankMatch = block.match(/music_icon_([a-zA-Z0-9_]+)\.png/);
-                    if (rankMatch) rank = rankMatch[1].toUpperCase().replace('PLUS', '+').replace('P', '+');
-
-                    allScores.push({ title, type, difficulty: diff.name, achievement, rank });
+            // Debug: always save HTML for inspection
+            const debugPath = require('path').join(__dirname, '..', 'debug_rating_target.html');
+            try { require('fs').writeFileSync(debugPath, html); console.log(`[Scraper] [DEBUG] Saved HTML to ${debugPath} (${html.length} bytes)`); } catch(e) {}
+            
+            // Split B15 and B35 sections by headers
+            const parts = html.split('Songs for Rating(New)');
+            if (parts.length < 2) throw new Error('Format halaman ratingTargetMusic tidak dikenal (New section missing)');
+            
+            const newSectionAndRest = parts[1].split('Songs for Rating(Others)');
+            if (newSectionAndRest.length < 2) throw new Error('Format halaman ratingTargetMusic tidak dikenal (Others section missing)');
+            const newSectionHtml = newSectionAndRest[0];
+            
+            let oldSectionHtml = '';
+            const oldSectionAndRest = newSectionAndRest[1].split('Songs for Rating Selection(New)');
+            if (oldSectionAndRest.length >= 2) {
+                oldSectionHtml = oldSectionAndRest[0];
+            } else {
+                const oldSectionAndRest2 = newSectionAndRest[1].split('Songs for Rating Selection(Others)');
+                if (oldSectionAndRest2.length >= 2) {
+                    oldSectionHtml = oldSectionAndRest2[0];
+                } else {
+                    throw new Error('Format halaman ratingTargetMusic tidak dikenal (Selection headers missing)');
                 }
             }
-
-            return { scores: allScores, newSessionCookie: latestNewSessionCookie };
+            
+            const b15 = parseSection(newSectionHtml, true);
+            const b35 = parseSection(oldSectionHtml, false);
+            const allScores = [...b15, ...b35];
+            
+            console.log(`[Scraper] [MusicBest] Parsed B15: ${b15.length} items, B35: ${b35.length} items`);
+            
+            if (b15.length === 0 || b35.length === 0) {
+                console.warn(`[Scraper] [MusicBest] WARNING: Parsed 0 items! Writing HTML to scratch_rating_error.html for debugging.`);
+                try {
+                    fs.writeFileSync('/home/Satyz/others/maimai-wa-bot/scratch_rating_error.html', html);
+                } catch (e) {
+                    console.error('Failed to write debug HTML:', e);
+                }
+            }
+            
+            return { scores: allScores, newSessionCookie };
         } catch (err) {
             errors.push(`${domain}: ${err.message}`);
         }
@@ -647,6 +680,6 @@ async function fetchMaimaiMusicBest(clal, savedSessionCookie, userAgent, preferr
     throw new Error('Failed to fetch music best scores: ' + errors.join(' | '));
 }
 
-module.exports = { fetchMaimaiProfile, fetchMaimaiRecent, fetchMaimaiRecentDetail, fetchMaimaiMusicBest };
+module.exports = { fetchMaimaiProfile, fetchMaimaiRecent, fetchMaimaiRecentDetail, fetchMaimaiMusicBest, fetchMaimaiPage };
 
 

@@ -1,8 +1,44 @@
 const fs = require('fs');
 const path = require('path');
 
-const cachePath = path.join(__dirname, '..', 'music_data.json');
+const cachePath = path.join(__dirname, '..', 'music_data_v2.json');
 let musicCache = null;
+
+function transformZetarakuToDivingFish(data) {
+    if (!data || !data.songs) return [];
+    
+    const diffMap = {
+        'basic': 0,
+        'advanced': 1,
+        'expert': 2,
+        'master': 3,
+        'remaster': 4
+    };
+    
+    return data.songs.map(song => {
+        if (!song.sheets || song.sheets.length === 0) return null;
+        
+        const type = song.sheets[0].type.toUpperCase() === 'DX' ? 'DX' : 'SD';
+        const ds = [null, null, null, null, null];
+        const level = [null, null, null, null, null];
+        
+        song.sheets.forEach(sheet => {
+            const idx = diffMap[sheet.difficulty.toLowerCase()];
+            if (idx !== undefined) {
+                ds[idx] = sheet.internalLevelValue || sheet.levelValue || null;
+                level[idx] = sheet.level || null;
+            }
+        });
+        
+        return {
+            title: song.title,
+            type: type,
+            ds: ds,
+            level: level,
+            version: song.version
+        };
+    }).filter(Boolean);
+}
 
 async function loadMusicData() {
     if (musicCache) return musicCache;
@@ -11,20 +47,22 @@ async function loadMusicData() {
         try {
             const raw = fs.readFileSync(cachePath, 'utf-8');
             musicCache = JSON.parse(raw);
+            console.log(`[MusicLoader] Loaded cache from: ${cachePath} | Songs count: ${musicCache.length}`);
             return musicCache;
         } catch (e) {
             console.error('[MusicLoader] Error reading cache file, redownloading...', e);
         }
     }
 
-    console.log('[MusicLoader] Downloading music data from Diving Fish API...');
+    console.log('[MusicLoader] Downloading music data from zetaraku CloudFront API...');
     try {
-        const response = await fetch('https://www.diving-fish.com/api/maimaidxprober/music_data');
+        const response = await fetch('https://dp4p6x0xfi5o9.cloudfront.net/maimai/data.json');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
-        fs.writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf-8');
-        musicCache = data;
-        console.log('[MusicLoader] Music data downloaded and cached successfully.');
+        const transformed = transformZetarakuToDivingFish(data);
+        fs.writeFileSync(cachePath, JSON.stringify(transformed, null, 2), 'utf-8');
+        musicCache = transformed;
+        console.log(`[MusicLoader] Music data downloaded, transformed and cached successfully. Total songs: ${transformed.length}`);
         return musicCache;
     } catch (err) {
         console.error('[MusicLoader] Failed to download music data:', err);
@@ -92,7 +130,6 @@ function extractConstant(song, difficulty) {
 async function getCurrentVersion() {
     const songs = await loadMusicData();
     if (!songs.length) return '';
-    // Unique versions are returned in chronological order by the Diving Fish dataset
     const uniqueVersions = [...new Set(songs.map(s => s.version).filter(Boolean))];
     return uniqueVersions[uniqueVersions.length - 1] || '';
 }
@@ -105,6 +142,7 @@ async function getCurrentVersion() {
  */
 async function findSong(title, type) {
     const songs = await loadMusicData();
+    console.log(`[MusicLoader] findSong called. Songs array size: ${songs.length} | Querying: "${title}" (Type: ${type})`);
     const cleanTitle = title.trim().toLowerCase();
     const apiType = type.toUpperCase() === 'DX' ? 'DX' : 'SD';
 

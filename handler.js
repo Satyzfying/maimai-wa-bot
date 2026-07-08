@@ -20,6 +20,12 @@ const {
     removeReminder,
     updateReminder
 } = require('./utils/reminders');
+const {
+    aiResultToPartialSession,
+    aiResultToPlan,
+    parseWithAI
+} = require('./utils/aiReminder');
+const { isOwner, normalizePhoneNumber } = require('./utils/owner');
 
 const commands = new Map();
 
@@ -70,21 +76,6 @@ function isCancelAnswer(text) {
 
 function isConfirmAnswer(text) {
     return /\b(iya|ya|yes|y|benar|bener|oke|ok|sip|gas|setuju|lanjut|betul)\b/i.test(text);
-}
-
-function isOwner(senderJid) {
-    const allowList = (process.env.REMINDER_OWNER_JIDS || process.env.OWNER_JIDS || '')
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-
-    if (allowList.length === 0) return true;
-
-    const senderNumber = senderJid.split('@')[0].replace(/\D/g, '');
-    return allowList.some(item => {
-        const normalized = item.includes('@') ? item.split('@')[0] : item;
-        return normalized.replace(/\D/g, '') === senderNumber;
-    });
 }
 
 function cleanupExpiredPending() {
@@ -195,6 +186,31 @@ async function askForConfirmation(sock, from, key, session, plan) {
     await sock.sendMessage(from, { text: buildReminderPlanSummary(plan) });
 }
 
+async function saveConfirmedReminder(sock, from, senderJid, key, session) {
+    const naturalReminder = createRemindersFromPlan({
+        chatJid: from,
+        creatorJid: senderJid,
+        eventAt: new Date(session.plan.eventAt),
+        eventMessage: session.plan.eventMessage,
+        reminders: session.plan.reminders.map(item => ({
+            ...item,
+            remindAt: new Date(item.remindAt)
+        }))
+    });
+
+    pendingReminderSessions.delete(key);
+    await sock.sendMessage(from, { text: buildNaturalReminderResponse(naturalReminder) });
+}
+
+async function getAiReminderIntent(text, pendingSession) {
+    try {
+        return await parseWithAI({ text, pendingSession });
+    } catch (err) {
+        console.warn('[AIReminder] Parser gagal, fallback ke parser lokal:', err.message);
+        return null;
+    }
+}
+
 function formatReminderList(reminders) {
     if (reminders.length === 0) return 'Belum ada reminder aktif.';
 
@@ -287,6 +303,112 @@ async function handleNaturalReminderManagement(sock, from, senderJid, text) {
     return false;
 }
 
+async function handleAiReminderIntent(sock, from, senderJid, text, aiResult, pendingSession = null) {
+    if (!aiResult || aiResult.intent === 'none') return false;
+
+    const key = getPendingKey(from, senderJid);
+
+    if (aiResult.intent === 'feature_help') {
+        await sock.sendMessage(from, { text: reminderFeatureText() });
+        return true;
+    }
+
+    if (aiResult.intent === 'list_reminders') {
+        await sock.sendMessage(from, { text: formatReminderList(listReminders(senderJid, from)) });
+        return true;
+    }
+
+    if (aiResult.intent === 'cancel') {
+        pendingReminderSessions.delete(key);
+        await sock.sendMessage(from, { text: 'Oke, reminder-nya aku batalin.' });
+        return true;
+    }
+
+    if (aiResult.intent === 'confirm' && pendingSession?.stage === 'confirm') {
+        await saveConfirmedReminder(sock, from, senderJid, key, pendingSession);
+        return true;
+    }
+
+    if (aiResult.intent === 'delete_reminder') {
+        const target = findReminderByText(senderJid, from, aiResult.target_query || '') || getNextReminder(senderJid, from);
+        if (!target) {
+            await sock.sendMessage(from, { text: 'Aku tidak menemukan reminder aktif yang cocok.' });
+            return true;
+        }
+
+        removeReminder(senderJid, target.id);
+        await sock.sendMessage(from, { text: `Oke, reminder *${target.id}* aku hapus.` });
+        return true;
+    }
+
+    if (aiResult.intent === 'snooze_reminder') {
+        const target = getNextReminder(senderJid, from);
+        const minutes = aiResult.snooze_minutes;
+
+        if (!target || !minutes) {
+            await sock.sendMessage(from, { text: 'Aku belum bisa tunda. Contoh: *tunda 10 menit*.' });
+            return true;
+        }
+
+        const updated = updateReminder(senderJid, target.id, {
+            remindAt: new Date(Date.now() + minutes * 60 * 1000).toISOString()
+        });
+        await sock.sendMessage(from, {
+            text: `Oke, reminder *${updated.id}* aku tunda ke ${formatDateTime(updated.remindAt)}.`
+        });
+        return true;
+    }
+
+    if (aiResult.intent === 'edit_reminder') {
+        const plan = aiResultToPlan(aiResult);
+        const target = findReminderByText(senderJid, from, aiResult.target_query || aiResult.event_title || '') || getNextReminder(senderJid, from);
+
+        if (!target || !plan) {
+            await sock.sendMessage(from, { text: 'Aku belum bisa ubah. Contoh: *ubah reminder UAS jadi jam 7 pagi*.' });
+            return true;
+        }
+
+        const firstReminder = plan.reminders[0];
+        const updated = updateReminder(senderJid, target.id, {
+            message: `Pengingat ${firstReminder.offset.label}: ${plan.eventMessage}\nWaktu acara: ${formatDateTime(plan.eventAt.toISOString())}`,
+            remindAt: firstReminder.remindAt.toISOString(),
+            repeat: firstReminder.repeat || null
+        });
+        await sock.sendMessage(from, { text: `Oke, reminder *${updated.id}* aku ubah ke ${formatDateTime(updated.remindAt)}.` });
+        return true;
+    }
+
+    if (['create_reminder', 'revise_pending'].includes(aiResult.intent)) {
+        if (aiResult.needs_clarification) {
+            const partialSession = aiResultToPartialSession(aiResult) || pendingSession || {
+                eventMessage: aiResult.event_title || 'acara',
+                offsets: [],
+                absoluteReminders: []
+            };
+            pendingReminderSessions.set(key, {
+                ...partialSession,
+                updatedAt: Date.now()
+            });
+            await sock.sendMessage(from, {
+                text: aiResult.clarifying_question || reminderExampleText('Aku butuh sedikit info lagi supaya reminder-nya tepat.')
+            });
+            return true;
+        }
+
+        const plan = aiResultToPlan(aiResult);
+        if (plan) {
+            await askForConfirmation(sock, from, key, {
+                ...(pendingSession || {}),
+                eventMessage: plan.eventMessage,
+                updatedAt: Date.now()
+            }, plan);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 async function handlePendingReminder(sock, from, senderJid, text) {
     cleanupExpiredPending();
 
@@ -302,6 +424,11 @@ async function handlePendingReminder(sock, from, senderJid, text) {
 
     if (session.stage === 'confirm') {
         if (!isConfirmAnswer(text)) {
+            const aiResult = await getAiReminderIntent(text, session);
+            if (await handleAiReminderIntent(sock, from, senderJid, text, aiResult, session)) {
+                return true;
+            }
+
             await sock.sendMessage(from, {
                 text: `Aku belum simpan. Balas *iya* kalau ringkasannya sudah benar, atau *batal* untuk membatalkan.`
             });
@@ -310,19 +437,7 @@ async function handlePendingReminder(sock, from, senderJid, text) {
             return true;
         }
 
-        const naturalReminder = createRemindersFromPlan({
-            chatJid: from,
-            creatorJid: senderJid,
-            eventAt: new Date(session.plan.eventAt),
-            eventMessage: session.plan.eventMessage,
-            reminders: session.plan.reminders.map(item => ({
-                ...item,
-                remindAt: new Date(item.remindAt)
-            }))
-        });
-
-        pendingReminderSessions.delete(key);
-        await sock.sendMessage(from, { text: buildNaturalReminderResponse(naturalReminder) });
+        await saveConfirmedReminder(sock, from, senderJid, key, session);
         return true;
     }
 
@@ -335,6 +450,11 @@ async function handlePendingReminder(sock, from, senderJid, text) {
 
     if (wasMissingTime && timeParts && session.dateParts && !session.offsets.length && !(session.absoluteReminders || []).length) {
         await askForMissingReminderInfo(sock, from, key, session);
+        return true;
+    }
+
+    const aiResult = await getAiReminderIntent(text, session);
+    if (await handleAiReminderIntent(sock, from, senderJid, text, aiResult, session)) {
         return true;
     }
 
@@ -444,6 +564,9 @@ async function handleMessage(sock, m, otps) {
         }
 
         if (!isOwner(senderJid)) {
+            if (isFeatureQuestion(text) || parseReminderDraft(text)) {
+                console.warn(`[ReminderOwner] Mengabaikan sender ${normalizePhoneNumber(senderJid)} karena tidak ada di REMINDER_OWNER_JIDS.`);
+            }
             return;
         }
 
@@ -453,6 +576,11 @@ async function handleMessage(sock, m, otps) {
         }
 
         if (await handlePendingReminder(sock, from, senderJid, text)) {
+            return;
+        }
+
+        const aiResult = await getAiReminderIntent(text, null);
+        if (await handleAiReminderIntent(sock, from, senderJid, text, aiResult)) {
             return;
         }
 

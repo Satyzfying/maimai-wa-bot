@@ -5,6 +5,7 @@ const {
     formatDateTime,
     parseReminderArgs
 } = require('../utils/reminders');
+const { isOwner } = require('../utils/owner');
 
 function usageText() {
     return `*REMINDER*\n\n` +
@@ -15,21 +16,6 @@ function usageText() {
         `• *.reminder list*\n` +
         `• *.reminder delete [ID]*\n\n` +
         `_Waktu ditampilkan dalam WITA._`;
-}
-
-function isOwner(senderJid) {
-    const allowList = (process.env.REMINDER_OWNER_JIDS || process.env.OWNER_JIDS || '')
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-
-    if (allowList.length === 0) return true;
-
-    const senderNumber = senderJid.split('@')[0].replace(/\D/g, '');
-    return allowList.some(item => {
-        const normalized = item.includes('@') ? item.split('@')[0] : item;
-        return normalized.replace(/\D/g, '') === senderNumber;
-    });
 }
 
 module.exports = {

@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const { createNaturalReminders } = require('./utils/naturalReminder');
+const { formatDateTime } = require('./utils/reminders');
 
 const commands = new Map();
 
@@ -84,6 +86,35 @@ async function handleMessage(sock, m, otps) {
                     });
                 }
             }
+            return;
+        }
+
+        const senderJid = msg.key.participant || msg.key.remoteJid;
+        let naturalReminder = null;
+
+        try {
+            naturalReminder = createNaturalReminders({
+                chatJid: from,
+                creatorJid: senderJid,
+                text
+            });
+        } catch (reminderError) {
+            console.error('[NaturalReminder] Gagal membuat reminder:', reminderError);
+            await sock.sendMessage(from, {
+                text: `Aku paham kamu mau set reminder, tapi gagal menyimpannya:\n_${reminderError.message}_`
+            });
+            return;
+        }
+
+        if (naturalReminder) {
+            let responseText = `Siap, aku set ${naturalReminder.created.length} reminder untuk:\n`;
+            responseText += `*${naturalReminder.eventMessage}*\n`;
+            responseText += `Waktu acara: ${formatDateTime(naturalReminder.eventAt.toISOString())}\n\n`;
+            responseText += naturalReminder.created
+                .map(reminder => `• ${formatDateTime(reminder.remindAt)} (*${reminder.id}*)`)
+                .join('\n');
+
+            await sock.sendMessage(from, { text: responseText });
         }
     } catch (err) {
         console.error('[CommandHandler] Error fatal di handler:', err);

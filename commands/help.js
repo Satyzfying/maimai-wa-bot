@@ -17,6 +17,7 @@ module.exports = {
             `• *.reminder add [waktu] [pesan]* : Buat reminder. Contoh: *.reminder add 30m latihan*.\n` +
             `• *.reminder list* : Lihat reminder aktif.\n` +
             `• *.reminder delete [ID]* : Hapus reminder.\n` +
+            `• Chat natural: "tolong set reminder besok jam 09.30 ada UAS, reminder aku 1 hari, 3 jam, 30 menit sebelumnya".\n` +
             `• *.ping* : Cek responsivitas bot.\n` +
             `• *.help* (/*.menu*) : Tampilkan menu bantuan.\n` +
             `_Catatan: Pemeliharaan SEGA berlangsung setiap hari pukul 03:00 - 06:00 WITA._`;

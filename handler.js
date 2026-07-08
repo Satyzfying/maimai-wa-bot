@@ -78,6 +78,44 @@ function isConfirmAnswer(text) {
     return /\b(iya|ya|yes|y|benar|bener|oke|ok|sip|gas|setuju|lanjut|betul)\b/i.test(text);
 }
 
+function pendingEventIso(session) {
+    if (!session?.dateParts || !session?.timeParts) return null;
+    const { year, month, day } = session.dateParts;
+    const { hour, minute } = session.timeParts;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+08:00`;
+}
+
+function explicitlyChangesEventTime(text) {
+    return /\b(?:acara(?:nya)?|event(?:nya)?|jadwal(?:nya)?|waktu(?:nya)?|mulai(?:nya)?)\b.*\b(?:jadi|jam|pukul|pk|pkl|tanggal|tgl|besok|lusa)\b/i.test(text)
+        || /\b(?:jadi|(?:di)?ganti|(?:di)?ubah)\s+(?:ke\s+|jadi\s+)?(?:tanggal|tgl|jam|pukul|pk|pkl|besok|lusa)\b/i.test(text);
+}
+
+function normalizeAiPendingEvent(aiResult, text, pendingSession) {
+    const eventDatetime = pendingEventIso(pendingSession);
+    if (!aiResult || !eventDatetime || explicitlyChangesEventTime(text)) return aiResult;
+
+    const originalAiEventDatetime = aiResult.event_datetime;
+    const reminders = [...(aiResult.reminders || [])];
+
+    if (originalAiEventDatetime && originalAiEventDatetime !== eventDatetime) {
+        const exists = reminders.some(r => r.datetime === originalAiEventDatetime);
+        if (!exists) {
+            reminders.push({
+                type: 'fixed_time',
+                datetime: originalAiEventDatetime,
+                minutes_before: null
+            });
+        }
+    }
+
+    return {
+        ...aiResult,
+        event_datetime: eventDatetime,
+        event_title: aiResult.event_title || pendingSession.eventMessage || null,
+        reminders
+    };
+}
+
 function cleanupExpiredPending() {
     const now = Date.now();
     for (const [key, session] of pendingReminderSessions.entries()) {
@@ -305,6 +343,7 @@ async function handleNaturalReminderManagement(sock, from, senderJid, text) {
 
 async function handleAiReminderIntent(sock, from, senderJid, text, aiResult, pendingSession = null) {
     if (!aiResult || aiResult.intent === 'none') return false;
+    aiResult = normalizeAiPendingEvent(aiResult, text, pendingSession);
 
     const key = getPendingKey(from, senderJid);
 

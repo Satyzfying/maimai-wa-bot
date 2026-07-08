@@ -60,8 +60,9 @@ PUBLIC_URL=https://your-service.zeabur.app
 DATA_DIR=/data
 PAIRING_PHONE_NUMBER=6281234567890
 REMINDER_OWNER_JIDS=6281234567890
-OPENAI_API_KEY=sk-your-openai-api-key
+GEMINI_API_KEY=your-gemini-api-key
 AI_REMINDER_ENABLED=true
+GEMINI_REMINDER_MODEL=gemini-3.5-flash
 ```
 
 ---
@@ -97,8 +98,9 @@ PUBLIC_URL=https://your-service.zeabur.app
 DATA_DIR=/data
 PAIRING_PHONE_NUMBER=6281234567890
 REMINDER_OWNER_JIDS=6281234567890
-OPENAI_API_KEY=sk-your-openai-api-key
+GEMINI_API_KEY=your-gemini-api-key
 AI_REMINDER_ENABLED=true
+GEMINI_REMINDER_MODEL=gemini-3.5-flash
 ```
 
 5. Mount a Zeabur Volume to `/data` so WhatsApp session files, `players.json`, `reminders.json`, and the music cache survive restarts and redeploys.

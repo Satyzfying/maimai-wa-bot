@@ -1,21 +1,11 @@
-const OpenAI = require('openai');
 const { parseHour } = require('./naturalReminder');
 
 const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
-const DEFAULT_MODEL = process.env.OPENAI_REMINDER_MODEL || 'gpt-4.1-mini';
+const DEFAULT_MODEL = process.env.GEMINI_REMINDER_MODEL || 'gemini-3.5-flash';
 
-let client = null;
-
-function getClient() {
-    if (!process.env.OPENAI_API_KEY || process.env.AI_REMINDER_ENABLED === 'false') {
-        return null;
-    }
-
-    if (!client) {
-        client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    }
-
-    return client;
+function getApiKey() {
+    if (process.env.AI_REMINDER_ENABLED === 'false') return null;
+    return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null;
 }
 
 function getCurrentWitaIso() {
@@ -40,7 +30,6 @@ function inferLabel(remindAt, eventAt) {
 function schema() {
     return {
         type: 'object',
-        additionalProperties: false,
         required: [
             'intent',
             'confidence',
@@ -69,37 +58,44 @@ function schema() {
                     'feature_help'
                 ]
             },
-            confidence: { type: 'number', minimum: 0, maximum: 1 },
-            event_title: { type: ['string', 'null'] },
-            event_datetime: { type: ['string', 'null'] },
+            confidence: { type: 'number' },
+            event_title: nullable({ type: 'string' }),
+            event_datetime: nullable({ type: 'string' }),
             reminders: {
                 type: 'array',
                 items: {
                     type: 'object',
-                    additionalProperties: false,
                     required: ['type', 'datetime', 'minutes_before'],
                     properties: {
                         type: { type: 'string', enum: ['fixed_time', 'relative'] },
-                        datetime: { type: ['string', 'null'] },
-                        minutes_before: { type: ['number', 'null'] }
+                        datetime: nullable({ type: 'string' }),
+                        minutes_before: nullable({ type: 'number' })
                     }
                 }
             },
-            repeat: {
-                type: ['object', 'null'],
-                additionalProperties: false,
+            repeat: nullable({
+                type: 'object',
                 required: ['unit', 'value', 'label'],
                 properties: {
                     unit: { type: 'string', enum: ['day', 'week'] },
                     value: { type: 'number' },
                     label: { type: 'string' }
                 }
-            },
+            }),
             needs_clarification: { type: 'boolean' },
-            clarifying_question: { type: ['string', 'null'] },
-            target_query: { type: ['string', 'null'] },
-            snooze_minutes: { type: ['number', 'null'] }
+            clarifying_question: nullable({ type: 'string' }),
+            target_query: nullable({ type: 'string' }),
+            snooze_minutes: nullable({ type: 'number' })
         }
+    };
+}
+
+function nullable(schemaPart) {
+    return {
+        anyOf: [
+            schemaPart,
+            { type: 'null' }
+        ]
     };
 }
 
@@ -118,48 +114,73 @@ function compactPending(session) {
 }
 
 async function parseWithAI({ text, pendingSession }) {
-    const api = getClient();
-    if (!api) return null;
+    const apiKey = getApiKey();
+    if (!apiKey) return null;
 
-    const response = await api.responses.create({
-        model: DEFAULT_MODEL,
-        input: [
-            {
-                role: 'system',
-                content:
-                    `Kamu adalah parser reminder pribadi Bahasa Indonesia.\n` +
-                    `Balas hanya JSON sesuai schema.\n` +
-                    `Timezone default Asia/Makassar/WITA (+08:00). Tanggal sekarang WITA: ${getCurrentWitaIso()}.\n` +
-                    `Pahami typo dan bahasa santai: ingetim, ingetin, ingatkan, remind, reminder, jadwalin.\n` +
-                    `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA.\n` +
-                    `Jika user mengoreksi pending reminder seperti "salah", "bukan", "maksudku", gunakan intent revise_pending dan minta klarifikasi jika belum jelas.\n` +
-                    `Jangan mengarang tanggal/jam kalau ambigu; gunakan needs_clarification.\n` +
-                    `Untuk beberapa reminder sekaligus, isi array reminders lebih dari satu.\n` +
-                    `Jika user bertanya fitur bot/reminder, intent feature_help.\n`
-            },
-            {
-                role: 'user',
-                content: JSON.stringify({
-                    text,
-                    pending: compactPending(pendingSession)
-                })
-            }
-        ],
-        text: {
-            format: {
-                type: 'json_schema',
-                name: 'reminder_intent',
-                strict: true,
+    const prompt =
+        `Kamu adalah parser reminder pribadi Bahasa Indonesia.\n` +
+        `Balas hanya JSON valid sesuai schema.\n` +
+        `Timezone default Asia/Makassar/WITA (+08:00). Tanggal sekarang WITA: ${getCurrentWitaIso()}.\n` +
+        `Pahami typo dan bahasa santai: ingetim, ingetin, ingatkan, remind, reminder, jadwalin.\n` +
+        `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA.\n` +
+        `Jika user mengoreksi pending reminder seperti "salah", "bukan", "maksudku", gunakan intent revise_pending dan minta klarifikasi jika belum jelas.\n` +
+        `Jangan mengarang tanggal/jam kalau ambigu; gunakan needs_clarification.\n` +
+        `Untuk beberapa reminder sekaligus, isi array reminders lebih dari satu.\n` +
+        `Jika user bertanya fitur bot/reminder, intent feature_help.\n\n` +
+        `Input:\n${JSON.stringify({ text, pending: compactPending(pendingSession) })}`;
+
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+        },
+        body: JSON.stringify({
+            model: DEFAULT_MODEL,
+            input: prompt,
+            response_format: {
+                type: 'text',
+                mime_type: 'application/json',
                 schema: schema()
             }
-        },
-        temperature: 0.1
+        })
     });
 
-    const raw = response.output_text;
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API ${response.status}: ${errorText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    const raw = extractGeminiText(data);
     if (!raw) return null;
 
-    return JSON.parse(raw);
+    return typeof raw === 'string' ? JSON.parse(stripJsonFence(raw)) : raw;
+}
+
+function extractGeminiText(data) {
+    if (!data) return null;
+    if (data.intent) return data;
+    if (typeof data.output_text === 'string') return data.output_text;
+
+    const steps = Array.isArray(data.steps) ? data.steps : [];
+    for (let i = steps.length - 1; i >= 0; i--) {
+        const content = steps[i].content;
+        if (!Array.isArray(content)) continue;
+
+        const textPart = content.find(item => typeof item.text === 'string');
+        if (textPart) return textPart.text;
+    }
+
+    const candidate = data.candidates?.[0]?.content?.parts?.find(part => typeof part.text === 'string');
+    return candidate?.text || null;
+}
+
+function stripJsonFence(value) {
+    return value
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '');
 }
 
 function aiResultToPlan(result) {

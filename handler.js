@@ -79,6 +79,20 @@ function buildNaturalReminderResponse(naturalReminder) {
     return responseText;
 }
 
+function reminderExampleText(reason) {
+    let response = reason ? `${reason}\n\n` : '';
+    response += `Contoh yang bisa aku pahami:\n`;
+    response += `• tolong reminder tanggal 10 jam 9 pagi ada UAS\n`;
+    response += `• ingatkan aku besok jam 19:00 ada latihan, 1 hari dan 3 jam sebelumnya\n`;
+    response += `• tolong reminder 10/07 jam 9 pagi ada UAS, ingetin jam 6 pagi\n\n`;
+    response += `Kalau aku sudah tanya pilihan reminder, kamu bisa jawab:\n`;
+    response += `• iya boleh pakai yang tadi\n`;
+    response += `• jam 6 pagi\n`;
+    response += `• malam sebelumnya jam 8\n`;
+    response += `• 2 hari, 6 jam, setengah jam sebelumnya`;
+    return response;
+}
+
 async function askForMissingReminderInfo(sock, from, key, session) {
     session.updatedAt = Date.now();
     pendingReminderSessions.set(key, session);
@@ -118,8 +132,14 @@ async function handlePendingReminder(sock, from, senderJid, text) {
     const dateParts = parseEventDate(text);
     if (dateParts) session.dateParts = dateParts;
 
+    const wasMissingTime = !session.timeParts;
     const timeParts = parseHour(text);
     if (timeParts && !session.timeParts) session.timeParts = timeParts;
+
+    if (wasMissingTime && timeParts && session.dateParts && !session.offsets.length && !(session.absoluteReminders || []).length) {
+        await askForMissingReminderInfo(sock, from, key, session);
+        return true;
+    }
 
     const explicitOffsets = parseOffsets(text, { includeDefault: false });
     const absoluteReminders = parseAbsoluteReminderTimes(text, session.dateParts, session.timeParts);
@@ -135,6 +155,15 @@ async function handlePendingReminder(sock, from, senderJid, text) {
     }
 
     if (!session.dateParts || !session.timeParts || (!session.offsets.length && !(session.absoluteReminders || []).length)) {
+        if (session.dateParts && session.timeParts && !session.offsets.length && !(session.absoluteReminders || []).length) {
+            await sock.sendMessage(from, {
+                text: reminderExampleText('Aku belum nangkep kapan kamu mau diingetin.')
+            });
+            session.updatedAt = Date.now();
+            pendingReminderSessions.set(key, session);
+            return true;
+        }
+
         await askForMissingReminderInfo(sock, from, key, session);
         return true;
     }
@@ -234,6 +263,13 @@ async function handleMessage(sock, m, otps) {
 
         try {
             const draft = parseReminderDraft(text);
+
+            if (draft && !draft.dateParts && !draft.timeParts && !draft.offsets.length && !draft.absoluteReminders.length) {
+                await sock.sendMessage(from, {
+                    text: reminderExampleText('Aku paham kamu mau bikin reminder, tapi format tanggal/jamnya belum kebaca.')
+                });
+                return;
+            }
 
             if (draft && (!draft.dateParts || !draft.timeParts || (!draft.offsets.length && !draft.absoluteReminders.length))) {
                 await askForMissingReminderInfo(sock, from, getPendingKey(from, senderJid), {

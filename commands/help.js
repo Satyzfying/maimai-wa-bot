@@ -14,10 +14,6 @@ module.exports = {
             `• *.top* (/*.b50*) : Tampilkan Best 15 (PRiSM) & total rating B50.\n` +
             `• *.top old [halaman]* : Tampilkan Best 35 lagu lama (halaman 1/2).\n` +
             `• *.top refresh* : Perbarui paksa data Best 50 dari SEGA.\n` +
-            `• *.reminder add [waktu] [pesan]* : Buat reminder. Contoh: *.reminder add 30m latihan*.\n` +
-            `• *.reminder list* : Lihat reminder aktif.\n` +
-            `• *.reminder delete [ID]* : Hapus reminder.\n` +
-            `• Chat natural: "tolong reminder tanggal 10 ada UAS" lalu bot akan tanya jam dan pilihan pengingat.\n` +
             `• *.ping* : Cek responsivitas bot.\n` +
             `• *.help* (/*.menu*) : Tampilkan menu bantuan.\n` +
             `_Catatan: Pemeliharaan SEGA berlangsung setiap hari pukul 03:00 - 06:00 WITA._`;

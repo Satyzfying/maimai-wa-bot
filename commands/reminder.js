@@ -23,6 +23,13 @@ module.exports = {
     needsPrefix: true,
     description: 'Membuat dan mengelola reminder WhatsApp.',
     async execute(sock, from, args, msg) {
+        if (from.endsWith('@g.us')) {
+            await sock.sendMessage(from, {
+                text: 'Fitur reminder hanya tersedia melalui chat pribadi.'
+            });
+            return;
+        }
+
         const senderJid = msg.key.participant || msg.key.remoteJid;
         const subCommand = (args[0] || '').toLowerCase();
 

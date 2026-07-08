@@ -12,7 +12,6 @@ A WhatsApp bot built with Node.js that retrieves profile data, ratings, and play
 - **Paginated Play History (`.recent`):** Navigates up to 5 pages of recent play history (25 tracks total) via `.recent page [1-5]`. Page switching is near-instant using an in-memory local cache.
 - **Detailed Score Breakdown (`.recent [1-25]`):** Displays Fast/Late timing counts, Max Combo, Sync status, rating change, and a full judgement table (Tap, Hold, Slide, Touch, Break) formatted as a monospaced grid.
 - **Song Constant Database:** Downloads the music database from the Diving Fish API on startup and uses it to resolve precise difficulty constants (e.g. `12.8` instead of level `12+`).
-- **Persistent WhatsApp Reminders:** Creates personal reminders from private chats or groups and stores them locally in `reminders.json` so they survive bot restarts.
 - **Multi-User and Group Support:** All user data is keyed by unique WhatsApp JID, allowing multiple users in a group to independently link and query their own accounts.
 
 ---
@@ -115,10 +114,6 @@ Zeabur injects `PORT` automatically, and the bot reads it from `process.env.PORT
 | `.top` (or `.b50`) | Private chat / Group | Displays the player's Best 50 DX Rating (Best 15 new + Best 35 old). |
 | `.top old [page]` | Private chat / Group | Displays the Best 35 (old songs) paginated. |
 | `.top refresh` | Private chat / Group | Force-refreshes the Best 50 data from SEGA (bypasses local cache). |
-| `.reminder add [time] [message]` | Private chat / Group | Creates a reminder. Supports durations like `30m`, `2h`, `1d`, plus `besok 19:30` or `YYYY-MM-DD HH:mm`. |
-| `.reminder list` | Private chat / Group | Lists your active reminders. |
-| `.reminder delete [ID]` | Private chat / Group | Deletes one of your reminders by ID. |
-| Natural reminder chat | Private chat / Group | Understands Indonesian reminder requests and asks follow-up questions when time or reminder offsets are missing, e.g. `tolong reminder tanggal 10 ada UAS`. |
 | `.ping` | Private chat / Group | Checks bot uptime and responsiveness. |
 | `.help` (or `.menu`) | Private chat / Group | Displays the help menu with all available commands and maintenance notes. |
 

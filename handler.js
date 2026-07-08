@@ -175,6 +175,7 @@ async function handleMessage(sock, m, otps) {
         cleanupExpiredPending();
 
         const senderJid = msg.key.participant || msg.key.remoteJid;
+        const isGroupChat = from.endsWith('@g.us');
 
         let isCommand = false;
         let commandName = '';
@@ -211,6 +212,10 @@ async function handleMessage(sock, m, otps) {
                     });
                 }
             }
+            return;
+        }
+
+        if (isGroupChat) {
             return;
         }
 

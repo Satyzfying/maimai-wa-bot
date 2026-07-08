@@ -20,7 +20,7 @@ function getRankFactor(achievement) {
     if (achievement >= 94.0)  return 0.168; // AAA
     if (achievement >= 90.0)  return 0.152; // AA
     if (achievement >= 80.0)  return 0.136; // A
-    if (achievement >= 75.0)  return 0.128; // BBB
+    if (achievement >= 75.0)  return 0.120; // BBB
     if (achievement >= 70.0)  return 0.112; // BB
     if (achievement >= 60.0)  return 0.096; // B
     if (achievement >= 50.0)  return 0.080; // C

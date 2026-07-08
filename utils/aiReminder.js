@@ -117,18 +117,72 @@ async function parseWithAI({ text, pendingSession }) {
     const apiKey = getApiKey();
     if (!apiKey) return null;
 
-    const prompt =
-        `Kamu adalah parser reminder pribadi Bahasa Indonesia.\n` +
-        `Balas hanya JSON valid sesuai schema.\n` +
-        `Timezone default Asia/Makassar/WITA (+08:00). Tanggal sekarang WITA: ${getCurrentWitaIso()}.\n` +
-        `Pahami typo dan bahasa santai: ingetim, ingetin, ingatkan, remind, reminder, jadwalin.\n` +
-        `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA.\n` +
-        `Jika user mengoreksi pending reminder seperti "salah", "bukan", "maksudku", gunakan intent revise_pending dan minta klarifikasi jika belum jelas.\n` +
-        `Jangan mengarang tanggal/jam kalau ambigu; gunakan needs_clarification.\n` +
-        `Untuk beberapa reminder sekaligus, isi array reminders lebih dari satu.\n` +
-        `Jika user bertanya fitur bot/reminder, intent feature_help.\n\n` +
-        `Input:\n${JSON.stringify({ text, pending: compactPending(pendingSession) })}`;
+    const prompt = buildPrompt(text, pendingSession);
+    const errors = [];
 
+    for (const request of [
+        () => callGenerateContent(apiKey, prompt, true),
+        () => callGenerateContent(apiKey, prompt, false),
+        () => callInteractions(apiKey, prompt)
+    ]) {
+        try {
+            const data = await request();
+            const raw = extractGeminiText(data);
+            if (!raw) continue;
+            return typeof raw === 'string' ? JSON.parse(stripJsonFence(raw)) : raw;
+        } catch (err) {
+            errors.push(err.message);
+        }
+    }
+
+    throw new Error(errors.join(' | ') || 'Gemini tidak mengembalikan JSON');
+}
+
+function buildPrompt(text, pendingSession) {
+    return (
+        `Kamu adalah AI parser reminder pribadi Bahasa Indonesia.\n` +
+        `Tugasmu memahami chat manusia yang typo, santai, tidak rapi, dan mengubahnya menjadi JSON valid.\n` +
+        `Jangan membalas percakapan biasa. Balas hanya JSON, tanpa markdown.\n` +
+        `Timezone default Asia/Makassar/WITA (+08:00). Tanggal sekarang WITA: ${getCurrentWitaIso()}.\n\n` +
+        `Intent yang tersedia: none, create_reminder, revise_pending, confirm, cancel, list_reminders, delete_reminder, edit_reminder, snooze_reminder, feature_help.\n` +
+        `Wajib pakai field ini semua: intent, confidence, event_title, event_datetime, reminders, repeat, needs_clarification, clarifying_question, target_query, snooze_minutes.\n` +
+        `Untuk nilai kosong pakai null, reminders pakai array kosong.\n\n` +
+        `Pahami typo dan variasi: ingetim, ingetin, ingatin, ingatkan, ingetin aku, remind, reminder, jadwalin, jadwalkan.\n` +
+        `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA, tanggal 10 = tanggal 10 terdekat.\n` +
+        `Kalau user memberi reminder fixed-time, gunakan reminders[].type="fixed_time" dan datetime absolut WITA.\n` +
+        `Kalau user memberi countdown, gunakan reminders[].type="relative" dan minutes_before.\n` +
+        `Jika tanggal/jam acara kurang jelas, jangan menebak; set needs_clarification=true dan isi clarifying_question.\n` +
+        `Jika ada pending reminder dan user mengoreksi seperti "salah", "bukan", "maksudku", gunakan revise_pending.\n\n` +
+        `Contoh output fixed-time:\n` +
+        `{"intent":"revise_pending","confidence":0.95,"event_title":"jadwal tanda tangan ketua dpm","event_datetime":"2026-07-10T17:00:00+08:00","reminders":[{"type":"fixed_time","datetime":"2026-07-10T15:00:00+08:00","minutes_before":null},{"type":"fixed_time","datetime":"2026-07-10T16:30:00+08:00","minutes_before":null}],"repeat":null,"needs_clarification":false,"clarifying_question":null,"target_query":null,"snooze_minutes":null}\n\n` +
+        `Input:\n${JSON.stringify({ text, pending: compactPending(pendingSession) })}`
+    );
+}
+
+async function callGenerateContent(apiKey, prompt, useSchema) {
+    const body = {
+        contents: [{
+            role: 'user',
+            parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json'
+        }
+    };
+
+    if (useSchema) {
+        body.generationConfig.responseSchema = schema();
+    }
+
+    const data = await postJson(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(DEFAULT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        body
+    );
+    return data;
+}
+
+async function callInteractions(apiKey, prompt) {
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
         method: 'POST',
         headers: {
@@ -146,16 +200,26 @@ async function parseWithAI({ text, pendingSession }) {
         })
     });
 
+    return parseGeminiResponse(response, 'Gemini interactions');
+}
+
+async function postJson(url, body) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+
+    return parseGeminiResponse(response, 'Gemini generateContent');
+}
+
+async function parseGeminiResponse(response, label) {
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Gemini API ${response.status}: ${errorText.slice(0, 200)}`);
+        throw new Error(`${label} ${response.status}: ${errorText.slice(0, 220)}`);
     }
 
-    const data = await response.json();
-    const raw = extractGeminiText(data);
-    if (!raw) return null;
-
-    return typeof raw === 'string' ? JSON.parse(stripJsonFence(raw)) : raw;
+    return response.json();
 }
 
 function extractGeminiText(data) {

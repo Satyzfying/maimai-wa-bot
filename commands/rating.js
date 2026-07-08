@@ -1,6 +1,6 @@
 const fs = require('fs');
 const { fetchMaimaiProfile } = require('../utils/scraper');
-const { dataPath } = require('../utils/paths');
+const { dataPath, writeJsonAtomic } = require('../utils/paths');
 
 module.exports = {
     name: 'rating',
@@ -86,7 +86,7 @@ module.exports = {
                     domain: result.domain || profile.domain,
                     updatedAt: updatedAt
                 };
-                fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                writeJsonAtomic(dbPath, players);
             } catch (err) {
                 console.warn('[Command Rating] Auto-update gagal, menggunakan data simpanan:', err.message);
                 sessionExpired = true;

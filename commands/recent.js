@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { fetchMaimaiRecent, fetchMaimaiRecentDetail } = require('../utils/scraper');
 const { getSongConstant } = require('../utils/music');
-const { dataPath } = require('../utils/paths');
+const { dataPath, writeJsonAtomic } = require('../utils/paths');
 
 // Menyimpan sesi data playlog terakhir per user di memori
 const recentSessions = new Map();
@@ -99,7 +99,7 @@ module.exports = {
                     // Update sessionCookie jika diperbarui
                     if (result.newSessionCookie) {
                         players[senderJid].sessionCookie = result.newSessionCookie;
-                        fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                        writeJsonAtomic(dbPath, players);
                     }
 
                     // Simpan daftar playlogs di memori
@@ -163,7 +163,7 @@ module.exports = {
 
                 if (result.newSessionCookie) {
                     players[senderJid].sessionCookie = result.newSessionCookie;
-                    fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                    writeJsonAtomic(dbPath, players);
                 }
             } catch (err) {
                 await sock.sendMessage(from, { text: `*Gagal mengambil rincian detail:*\n_${err.message}_` });
@@ -185,7 +185,7 @@ module.exports = {
 
             if (result.newSessionCookie) {
                 players[senderJid].sessionCookie = result.newSessionCookie;
-                fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                writeJsonAtomic(dbPath, players);
             }
 
             // Hitung total Judgements

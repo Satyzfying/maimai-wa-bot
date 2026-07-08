@@ -2,7 +2,7 @@ const fs = require('fs');
 const { fetchMaimaiMusicBest } = require('../utils/scraper');
 const { findSong, getCurrentVersion } = require('../utils/music');
 const { calcSongRating } = require('../utils/rating');
-const { dataPath } = require('../utils/paths');
+const { dataPath, writeJsonAtomic } = require('../utils/paths');
 
 // In-memory cache of B50 results per user
 const topSessions = new Map();
@@ -103,7 +103,7 @@ module.exports = {
                 // Persist refreshed session cookie
                 if (result.newSessionCookie) {
                     players[senderJid].sessionCookie = result.newSessionCookie;
-                    fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                    writeJsonAtomic(dbPath, players);
                 }
 
                 // Determine current version for B15/B35 split

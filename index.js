@@ -6,7 +6,7 @@ const path = require('path');
 const { handleMessage } = require('./handler');
 const { fetchMaimaiProfile } = require('./utils/scraper');
 const { startReminderScheduler } = require('./utils/reminders');
-const { dataPath, ensureDataDir } = require('./utils/paths');
+const { dataPath, ensureDataDir, writeJsonAtomic } = require('./utils/paths');
 
 const otps = new Map();
 let activeSock = null;
@@ -224,7 +224,7 @@ const server = http.createServer((req, res) => {
                         updatedAt: new Date().toISOString()
                     };
 
-                    fs.writeFileSync(dbPath, JSON.stringify(players, null, 2), 'utf-8');
+                    writeJsonAtomic(dbPath, players);
 
                     // Kirim notifikasi sukses langsung di chat WhatsApp user
                     if (activeSock) {

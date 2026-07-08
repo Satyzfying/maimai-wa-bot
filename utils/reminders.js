@@ -157,38 +157,75 @@ function parseDuration(token) {
     return new Date(Date.now() + value * multiplier);
 }
 
+const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function nowInWitaParts() {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Makassar',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23'
+    });
+
+    const parts = Object.fromEntries(formatter.formatToParts(new Date()).map(part => [part.type, part.value]));
+    return {
+        year: Number(parts.year),
+        month: Number(parts.month),
+        day: Number(parts.day),
+        hour: Number(parts.hour),
+        minute: Number(parts.minute),
+        second: Number(parts.second)
+    };
+}
+
+function witaDateToUtcDate(year, month, day, hour, minute) {
+    return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) - WITA_OFFSET_MS);
+}
+
 function parseAbsoluteDate(tokens) {
     const first = tokens[0];
     const second = tokens[1];
 
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(first)) {
-        return { date: new Date(first), consumed: 1 };
+        const match = first.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+        if (match) {
+            const [_, y, m, d, h, min] = match;
+            return { date: witaDateToUtcDate(Number(y), Number(m), Number(d), Number(h), Number(min)), consumed: 1 };
+        }
     }
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(first) && /^\d{2}:\d{2}$/.test(second || '')) {
-        return { date: new Date(`${first}T${second}`), consumed: 2 };
+        const matchDate = first.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        const matchTime = second.match(/^(\d{2}):(\d{2})$/);
+        if (matchDate && matchTime) {
+            return {
+                date: witaDateToUtcDate(Number(matchDate[1]), Number(matchDate[2]), Number(matchDate[3]), Number(matchTime[1]), Number(matchTime[2])),
+                consumed: 2
+            };
+        }
     }
 
     if (/^besok$/i.test(first) && /^\d{2}:\d{2}$/.test(second || '')) {
         const [hour, minute] = second.split(':').map(Number);
-        const date = new Date();
-        date.setDate(date.getDate() + 1);
-        date.setHours(hour, minute, 0, 0);
-        return { date, consumed: 2 };
+        const witaNow = nowInWitaParts();
+        const tomorrow = new Date(witaDateToUtcDate(witaNow.year, witaNow.month, witaNow.day, hour, minute).getTime() + 24 * 60 * 60 * 1000);
+        return { date: tomorrow, consumed: 2 };
     }
 
     if (/^hariini$/i.test(first) && /^\d{2}:\d{2}$/.test(second || '')) {
         const [hour, minute] = second.split(':').map(Number);
-        const date = new Date();
-        date.setHours(hour, minute, 0, 0);
-        return { date, consumed: 2 };
+        const witaNow = nowInWitaParts();
+        return { date: witaDateToUtcDate(witaNow.year, witaNow.month, witaNow.day, hour, minute), consumed: 2 };
     }
 
     if (/^hari$/i.test(first) && /^ini$/i.test(second || '') && /^\d{2}:\d{2}$/.test(tokens[2] || '')) {
         const [hour, minute] = tokens[2].split(':').map(Number);
-        const date = new Date();
-        date.setHours(hour, minute, 0, 0);
-        return { date, consumed: 3 };
+        const witaNow = nowInWitaParts();
+        return { date: witaDateToUtcDate(witaNow.year, witaNow.month, witaNow.day, hour, minute), consumed: 3 };
     }
 
     return null;

@@ -16,8 +16,15 @@ function dataPath(fileName) {
     return path.join(dataDir, fileName);
 }
 
+function writeJsonAtomic(filePath, data) {
+    const tmpPath = filePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
+}
+
 module.exports = {
     dataDir,
     dataPath,
-    ensureDataDir
+    ensureDataDir,
+    writeJsonAtomic
 };

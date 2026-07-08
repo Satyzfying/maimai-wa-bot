@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { dataPath } = require('./paths');
+const { dataPath, writeJsonAtomic } = require('./paths');
 
 const DB_PATH = dataPath('reminders.json');
 const CHECK_INTERVAL_MS = 15 * 1000;
@@ -15,9 +15,16 @@ function readDb() {
 
     try {
         const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8') || '{}');
-        return {
-            items: Array.isArray(data.items) ? data.items : []
-        };
+        const rawItems = Array.isArray(data.items) ? data.items : [];
+        
+        // Sanitasi: Buang data yang rusak atau tidak valid (NaN)
+        const cleanItems = rawItems.filter(item => {
+            if (!item || !item.id || !item.remindAt) return false;
+            const time = new Date(item.remindAt).getTime();
+            return !Number.isNaN(time);
+        });
+
+        return { items: cleanItems };
     } catch (err) {
         console.error('[Reminder] Gagal membaca reminders.json:', err.message);
         return { items: [] };
@@ -25,21 +32,25 @@ function readDb() {
 }
 
 function writeDb(db) {
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+    writeJsonAtomic(DB_PATH, db);
 }
 
 function createId() {
     return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-function addReminder({ chatJid, creatorJid, message, remindAt, repeat }) {
+function canAddReminders(creatorJid, count = 1) {
     const db = readDb();
     const activeCount = db.items.filter(item => item.creatorJid === creatorJid).length;
+    return activeCount + count <= MAX_REMINDERS_PER_USER;
+}
 
-    if (activeCount >= MAX_REMINDERS_PER_USER) {
+function addReminder({ chatJid, creatorJid, message, remindAt, repeat }) {
+    if (!canAddReminders(creatorJid, 1)) {
         throw new Error(`Batas maksimal ${MAX_REMINDERS_PER_USER} reminder aktif per pengguna sudah tercapai.`);
     }
 
+    const db = readDb();
     let id = createId();
     while (db.items.some(item => item.id === id)) {
         id = createId();
@@ -87,8 +98,22 @@ function findReminderByText(creatorJid, chatJid, query) {
     const needle = query.trim().toLowerCase();
     if (!needle) return null;
 
-    return listReminders(creatorJid, chatJid)
-        .find(item => item.id.toLowerCase() === needle || item.message.toLowerCase().includes(needle)) || null;
+    const list = listReminders(creatorJid, chatJid);
+    
+    // 1. Prioritaskan ID exact match
+    const exactId = list.find(item => item.id.toLowerCase() === needle);
+    if (exactId) return exactId;
+
+    // 2. Prioritaskan pesan exact match
+    const exactMsg = list.find(item => item.message.toLowerCase() === needle);
+    if (exactMsg) return exactMsg;
+
+    // 3. Fallback ke substring matching hanya jika kueri minimal 3 karakter
+    if (needle.length >= 3) {
+        return list.find(item => item.message.toLowerCase().includes(needle)) || null;
+    }
+
+    return null;
 }
 
 function getNextReminder(creatorJid, chatJid) {
@@ -276,19 +301,46 @@ async function sendDueReminders(sock) {
 
                 const latestDb = readDb();
                 const latestItem = latestDb.items.find(reminder => reminder.id === item.id);
-                const nextRepeatAt = latestItem ? advanceRepeat(latestItem) : null;
-
-                if (latestItem && nextRepeatAt) {
-                    latestItem.remindAt = nextRepeatAt;
-                    latestItem.updatedAt = new Date().toISOString();
-                } else {
-                    latestDb.items = latestDb.items.filter(reminder => reminder.id !== item.id);
+                
+                if (latestItem) {
+                    // Cek jika waktu remindAt sudah diubah oleh pengguna (di-snooze/reschedule) saat proses kirim berjalan
+                    if (latestItem.remindAt !== item.remindAt) {
+                        console.log(`[Reminder] Mengabaikan penghapusan/repeat untuk ${item.id} karena telah dijadwalkan ulang oleh user.`);
+                    } else {
+                        const nextRepeatAt = advanceRepeat(latestItem);
+                        if (nextRepeatAt) {
+                            latestItem.remindAt = nextRepeatAt;
+                            latestItem.updatedAt = new Date().toISOString();
+                        } else {
+                            latestDb.items = latestDb.items.filter(reminder => reminder.id !== item.id);
+                        }
+                        latestDb.items.sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
+                        writeDb(latestDb);
+                    }
                 }
-
-                latestDb.items.sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
-                writeDb(latestDb);
             } catch (err) {
                 console.error(`[Reminder] Gagal mengirim reminder ${item.id}:`, err.message);
+                
+                // Cegah loop retry tanpa batas jika ada masalah koneksi/nomor tidak valid
+                try {
+                    const latestDb = readDb();
+                    const latestItem = latestDb.items.find(reminder => reminder.id === item.id);
+                    if (latestItem) {
+                        latestItem.retryCount = (latestItem.retryCount || 0) + 1;
+                        if (latestItem.retryCount >= 3) {
+                            console.warn(`[Reminder] Menghapus reminder ${item.id} karena gagal dikirim sebanyak 3 kali.`);
+                            latestDb.items = latestDb.items.filter(reminder => reminder.id !== item.id);
+                        } else {
+                            // Coba lagi dalam 5 menit
+                            latestItem.remindAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+                            latestItem.updatedAt = new Date().toISOString();
+                        }
+                        latestDb.items.sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
+                        writeDb(latestDb);
+                    }
+                } catch (dbErr) {
+                    console.error(`[Reminder] Gagal memperbarui status retry reminder ${item.id}:`, dbErr.message);
+                }
             }
         }
     } finally {
@@ -318,5 +370,7 @@ module.exports = {
     updateReminder,
     formatDateTime,
     parseReminderArgs,
-    startReminderScheduler
+    startReminderScheduler,
+    canAddReminders,
+    MAX_REMINDERS_PER_USER
 };

@@ -165,6 +165,7 @@ function buildPrompt(text, pendingSession) {
         `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA, tanggal 10 = tanggal 10 terdekat.\n` +
         `Kalau user memberi reminder fixed-time, gunakan reminders[].type="fixed_time" dan datetime absolut WITA.\n` +
         `Kalau user memberi countdown, gunakan reminders[].type="relative" dan minutes_before.\n` +
+        `Pahami unit waktu countdown seperti detik, menit, jam, hari, minggu, atau bulan (misal: "3 jam lagi", "20 detik lagi", "1 bulan lagi"). Konversikan semuanya ke dalam 'minutes_before' (atau hitung datetime absolut secara presisi jika di luar menit).\n` +
         `Jika pending.reply_context mengatakan bot sedang menanyakan waktu reminder, pertahankan pending.event_datetime sebagai waktu acara.\n` +
         `Dalam konteks itu, frasa seperti "jam 3 sore dan setengah 5 sore" berarti dua waktu reminder: 15:00 dan 16:30.\n` +
         `Ubah event_datetime hanya jika user eksplisit bilang "acaranya jadi", "waktu acaranya", "jadwalnya", atau koreksi serupa.\n` +
@@ -265,18 +266,20 @@ function aiResultToPlan(result) {
     for (const reminder of result.reminders || []) {
         if (reminder.type === 'relative' && reminder.minutes_before !== null) {
             const minutes = Number(reminder.minutes_before);
-            if (minutes <= 0) continue;
+            if (minutes < 0) continue;
 
             const remindAt = new Date(eventAt.getTime() - minutes * 60 * 1000);
             if (remindAt.getTime() > Date.now()) {
                 reminders.push({
                     offset: {
                         minutes,
-                        label: minutes % (24 * 60) === 0
-                            ? `${minutes / (24 * 60)} hari sebelumnya`
-                            : minutes % 60 === 0
-                                ? `${minutes / 60} jam sebelumnya`
-                                : `${minutes} menit sebelumnya`
+                        label: minutes === 0
+                            ? 'tepat waktu'
+                            : minutes % (24 * 60) === 0
+                                ? `${minutes / (24 * 60)} hari sebelumnya`
+                                : minutes % 60 === 0
+                                    ? `${minutes / 60} jam sebelumnya`
+                                    : `${minutes} menit sebelumnya`
                     },
                     remindAt,
                     repeat: result.repeat || null

@@ -1,4 +1,4 @@
-const { addReminder, formatDateTime } = require('./reminders');
+const { addReminder, formatDateTime, canAddReminders, MAX_REMINDERS_PER_USER } = require('./reminders');
 
 const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_OFFSETS = [
@@ -487,6 +487,10 @@ function parseNaturalReminder(text) {
 }
 
 function createRemindersFromPlan({ chatJid, creatorJid, eventAt, eventMessage, reminders }) {
+    if (!canAddReminders(creatorJid, reminders.length)) {
+        throw new Error(`Gagal menyimpan. Batas maksimal ${MAX_REMINDERS_PER_USER} reminder aktif per pengguna akan terlampaui.`);
+    }
+
     const created = reminders.map(item => {
         const message = `Pengingat ${item.offset.label}: ${eventMessage}\nWaktu acara: ${formatDateTime(eventAt.toISOString())}`;
         return addReminder({

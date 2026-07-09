@@ -20,6 +20,7 @@ const {
     getNextReminder,
     listReminders,
     removeReminder,
+    removeReminders,
     updateReminder
 } = require('./utils/reminders');
 const {
@@ -303,14 +304,52 @@ async function getAiReminderIntent(text, pendingSession) {
 function formatReminderList(reminders) {
     if (reminders.length === 0) return 'Belum ada reminder aktif.';
 
-    let responseText = `Reminder aktif:\n\n`;
+    const groups = new Map();
     for (const reminder of reminders) {
-        responseText += `• *${reminder.id}* - ${formatReminderDateTime(reminder.remindAt)}\n`;
-        responseText += `  ${reminder.message.replace(/\n/g, ' | ')}\n`;
-        if (reminder.repeat) responseText += `  Berulang: ${reminder.repeat.label || reminder.repeat.unit}\n`;
+        const meta = reminderMeta(reminder);
+        const key = `${meta.title}|${meta.eventTime || ''}`;
+        if (!groups.has(key)) {
+            groups.set(key, {
+                title: meta.title,
+                eventTime: meta.eventTime,
+                items: []
+            });
+        }
+        groups.get(key).items.push({ ...reminder, label: meta.label });
+    }
+
+    let responseText = `Reminder aktif:\n`;
+    for (const group of groups.values()) {
+        responseText += `\n*${group.title}*`;
+        if (group.eventTime) responseText += `\nAcara: ${group.eventTime}`;
+        responseText += `\n`;
+        responseText += group.items
+            .map(item => `• ${formatReminderDateTime(item.remindAt)} (${item.label}) - *${item.id}*`)
+            .join('\n');
         responseText += `\n`;
     }
+
     return responseText.trim();
+}
+
+function reminderMeta(reminder) {
+    const lines = String(reminder.message || '').split('\n');
+    const first = lines[0] || 'Pengingat: reminder';
+    const eventLine = lines.find(line => /^Waktu acara:/i.test(line));
+    const pengingat = first.match(/^Pengingat\s+(.+?):\s*(.+)$/i);
+    const direct = first.match(/^Pengingat:\s*(.+)$/i);
+
+    return {
+        title: (pengingat?.[2] || direct?.[1] || first).trim(),
+        label: (pengingat?.[1] || 'tepat waktu').trim(),
+        eventTime: eventLine ? eventLine.replace(/^Waktu acara:\s*/i, '').trim() : null
+    };
+}
+
+function isDeleteAllRequest(text) {
+    return /\b(hapus|delete|buang|cancel|batalkan)\b/i.test(text)
+        && /\b(semua|all|seluruh)\b/i.test(text)
+        && /\b(reminder|pengingat)\b/i.test(text);
 }
 
 function parseSnoozeMinutes(text) {
@@ -335,6 +374,12 @@ async function handleNaturalReminderManagement(sock, from, senderJid, text) {
         return true;
     }
 
+    if (isDeleteAllRequest(text)) {
+        const removed = removeReminders(senderJid, from);
+        await sock.sendMessage(from, { text: removed.length ? `Oke, aku hapus ${removed.length} reminder aktif.` : 'Belum ada reminder aktif.' });
+        return true;
+    }
+
     if (/\b(tunda|snooze)\b/i.test(text)) {
         const minutes = parseSnoozeMinutes(text);
         const target = getNextReminder(senderJid, from);
@@ -354,7 +399,24 @@ async function handleNaturalReminderManagement(sock, from, senderJid, text) {
 
     if (/\b(hapus|delete|buang|cancel|batalkan)\b/i.test(text) && /\b(reminder|pengingat)\b/i.test(text)) {
         const query = parseReminderQuery(text);
-        const target = findReminderByText(senderJid, from, query) || getNextReminder(senderJid, from);
+        if (!query) {
+            const active = listReminders(senderJid, from);
+            if (!active.length) {
+                await sock.sendMessage(from, { text: 'Belum ada reminder aktif.' });
+                return true;
+            }
+
+            pendingReminderSessions.set(getPendingKey(from, senderJid), {
+                stage: 'delete_select',
+                updatedAt: Date.now()
+            });
+            await sock.sendMessage(from, {
+                text: `Mau hapus reminder yang mana? Balas ID reminder, atau balas *semua* untuk hapus semuanya.\n\n${formatReminderList(active)}`
+            });
+            return true;
+        }
+
+        const target = findReminderByText(senderJid, from, query);
 
         if (!target) {
             await sock.sendMessage(from, { text: 'Aku tidak menemukan reminder aktif yang cocok.' });
@@ -420,7 +482,32 @@ async function handleAiReminderIntent(sock, from, senderJid, text, aiResult, pen
     }
 
     if (aiResult.intent === 'delete_reminder') {
-        const target = findReminderByText(senderJid, from, aiResult.target_query || '') || getNextReminder(senderJid, from);
+        const query = (aiResult.target_query || '').trim();
+
+        if (/\b(semua|all|seluruh)\b/i.test(query) || isDeleteAllRequest(text)) {
+            const removed = removeReminders(senderJid, from);
+            await sock.sendMessage(from, { text: removed.length ? `Oke, aku hapus ${removed.length} reminder aktif.` : 'Belum ada reminder aktif.' });
+            return true;
+        }
+
+        if (!query) {
+            const active = listReminders(senderJid, from);
+            if (!active.length) {
+                await sock.sendMessage(from, { text: 'Belum ada reminder aktif.' });
+                return true;
+            }
+
+            pendingReminderSessions.set(key, {
+                stage: 'delete_select',
+                updatedAt: Date.now()
+            });
+            await sock.sendMessage(from, {
+                text: `Mau hapus reminder yang mana? Balas ID reminder, atau balas *semua* untuk hapus semuanya.\n\n${formatReminderList(active)}`
+            });
+            return true;
+        }
+
+        const target = findReminderByText(senderJid, from, query);
         if (!target) {
             await sock.sendMessage(from, { text: 'Aku tidak menemukan reminder aktif yang cocok.' });
             return true;
@@ -513,6 +600,32 @@ async function handlePendingReminder(sock, from, senderJid, text) {
     if (isCancelAnswer(text)) {
         pendingReminderSessions.delete(key);
         await sock.sendMessage(from, { text: 'Oke, reminder-nya aku batalin.' });
+        return true;
+    }
+
+    if (session.stage === 'delete_select') {
+        const active = listReminders(senderJid, from);
+
+        if (/\b(semua|all|seluruh)\b/i.test(text)) {
+            const removed = removeReminders(senderJid, from);
+            pendingReminderSessions.delete(key);
+            await sock.sendMessage(from, { text: removed.length ? `Oke, aku hapus ${removed.length} reminder aktif.` : 'Belum ada reminder aktif.' });
+            return true;
+        }
+
+        const target = findReminderByText(senderJid, from, text.trim());
+        if (!target) {
+            await sock.sendMessage(from, {
+                text: `Aku belum menemukan reminder itu. Balas ID reminder yang mau dihapus, atau balas *semua* untuk hapus semuanya.\n\n${formatReminderList(active)}`
+            });
+            session.updatedAt = Date.now();
+            pendingReminderSessions.set(key, session);
+            return true;
+        }
+
+        removeReminder(senderJid, target.id);
+        pendingReminderSessions.delete(key);
+        await sock.sendMessage(from, { text: `Oke, reminder *${target.id}* aku hapus.` });
         return true;
     }
 

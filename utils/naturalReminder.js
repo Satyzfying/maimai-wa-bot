@@ -94,6 +94,11 @@ function normalizeText(text) {
 
 function ambiguousTimeCandidate(text) {
     const normalized = normalizeText(text);
+    if (/\b(?:pagi|siang|sore|malam)\s*(?:jam|pukul|pk|pkl)?\s*\d{1,2}(?:[.:]\d{1,2})?\b/i.test(normalized)
+        || /\b(?:(?:jam|pukul|pk|pkl)\s*)?\d{1,2}(?:[.:]\d{1,2})?\s*(?:pagi|siang|sore|malam|am|pm|wita)\b/i.test(normalized)) {
+        return null;
+    }
+
     const match = normalized.match(/\b(?:(?:jam|pukul|pk|pkl)\s*)?(\d{1,2})(?:[.:](\d{1,2}))\s*(?!pagi|siang|sore|malam|am|pm|wita)\b/i)
         || normalized.match(/\b(?:jam|pukul|pk|pkl)\s*(\d{1,2})\s*(?!pagi|siang|sore|malam|am|pm|wita)\b/i);
 

@@ -180,6 +180,8 @@ function buildPrompt(text, pendingSession) {
         `Jika pending.reply_context mengatakan bot sedang menanyakan waktu reminder, pertahankan pending.event_datetime sebagai waktu acara.\n` +
         `Dalam konteks itu, frasa seperti "jam 3 sore dan setengah 5 sore" berarti dua waktu reminder: 15:00 dan 16:30.\n` +
         `Ubah event_datetime hanya jika user eksplisit bilang "acaranya jadi", "waktu acaranya", "jadwalnya", atau koreksi serupa.\n` +
+        `Jika user meminta hapus semua reminder, gunakan intent delete_reminder dan target_query "semua".\n` +
+        `Jika user hanya bilang hapus reminder tanpa target, gunakan intent delete_reminder dan target_query null supaya bot bertanya lanjut.\n` +
         `Jika tanggal/jam acara kurang jelas, jangan menebak; set needs_clarification=true dan isi clarifying_question.\n` +
         `Jika ada pending reminder dan user mengoreksi seperti "salah", "bukan", "maksudku", gunakan revise_pending.\n\n` +
         `Contoh output fixed-time:\n` +

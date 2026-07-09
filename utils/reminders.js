@@ -134,6 +134,28 @@ function removeReminder(creatorJid, id) {
     return removed;
 }
 
+function removeReminders(creatorJid, chatJid, predicate = () => true) {
+    const db = readDb();
+    const removed = [];
+    const kept = [];
+
+    for (const item of db.items) {
+        const belongsToUser = item.creatorJid === creatorJid && (!chatJid || item.chatJid === chatJid);
+        if (belongsToUser && predicate(item)) {
+            removed.push(item);
+        } else {
+            kept.push(item);
+        }
+    }
+
+    if (removed.length) {
+        db.items = kept;
+        writeDb(db);
+    }
+
+    return removed;
+}
+
 function advanceRepeat(reminder) {
     if (!reminder.repeat) return null;
 
@@ -367,6 +389,7 @@ module.exports = {
     getNextReminder,
     listReminders,
     removeReminder,
+    removeReminders,
     updateReminder,
     formatDateTime,
     parseReminderArgs,

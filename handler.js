@@ -570,25 +570,33 @@ async function handlePendingReminder(sock, from, senderJid, text) {
         return true;
     }
 
-    const aiResult = await getAiReminderIntent(text, session);
-    if (await handleAiReminderIntent(sock, from, senderJid, text, aiResult, session)) {
-        return true;
-    }
-
     const explicitOffsets = parseOffsets(text, { includeDefault: false });
     const absoluteReminders = parseAbsoluteReminderTimes(text, session.dateParts, session.timeParts);
+    let handledReminderChoice = false;
+
     if (explicitOffsets.length) {
         session.offsets = explicitOffsets;
         session.absoluteReminders = [];
+        handledReminderChoice = true;
     } else if (absoluteReminders.length) {
         session.absoluteReminders = absoluteReminders;
         session.offsets = [];
+        handledReminderChoice = true;
     } else if (session.dateParts && session.timeParts && isExactReminderAnswer(text)) {
         session.offsets = [{ minutes: 0, label: 'tepat waktu' }];
         session.absoluteReminders = [];
+        handledReminderChoice = true;
     } else if (session.dateParts && session.timeParts && isDefaultOffsetAnswer(text)) {
         session.offsets = DEFAULT_OFFSETS;
         session.absoluteReminders = [];
+        handledReminderChoice = true;
+    }
+
+    if (!handledReminderChoice) {
+        const aiResult = await getAiReminderIntent(text, session);
+        if (await handleAiReminderIntent(sock, from, senderJid, text, aiResult, session)) {
+            return true;
+        }
     }
 
     if (!session.dateParts || !session.timeParts || (!session.offsets.length && !(session.absoluteReminders || []).length)) {

@@ -203,34 +203,35 @@ function reminderExampleText(reason) {
 }
 
 function isFeatureQuestion(text) {
-    return /\b(fitur|bisa apa|bisa ngapain|bot ini apa|kemampuan|cara pakai|help reminder|bantuan reminder)\b/i.test(text);
+    return /\b(fitur|bisa apa|bisa ngapain|bot ini apa|kemampuan|cara pakai|help reminder|help desk reminder|bantuan reminder|panduan reminder)\b/i.test(text);
 }
 
 function reminderFeatureText() {
-    return `Aku punya fitur reminder pribadi yang bisa kamu pakai lewat chat natural.\n\n` +
-        `*Bikin reminder sekali jalan*\n` +
-        `• "tolong reminder tanggal 10 jam 9 pagi ada UAS, 1 hari sebelumnya"\n` +
-        `• "ingatkan aku besok jam 19:00 ada latihan, 3 jam sebelumnya"\n` +
-        `• "ingatkan aku 5 menit lagi untuk bangun"\n\n` +
-        `*Kalau informasinya kurang, aku akan tanya lanjut*\n` +
-        `Misalnya kamu tulis "tolong reminder tanggal 10 ada UAS", aku akan tanya jam acaranya, lalu tanya kapan kamu mau diingetin.\n\n` +
-        `*Pilihan waktu reminder fleksibel*\n` +
-        `• Countdown: "1 hari, 12 jam, 30 menit sebelumnya"\n` +
-        `• Jam tertentu: "jam 6 pagi"\n` +
-        `• Tepat saat acara: "tepat waktu"\n` +
-        `• Hari sebelumnya: "malam sebelumnya jam 8"\n` +
-        `• Paket standar: 1 hari, 12 jam, 6 jam, 3 jam, 1 jam, 30 menit sebelumnya\n\n` +
-        `*Aku konfirmasi dulu sebelum menyimpan*\n` +
-        `Aku akan merangkum acara, waktu, dan reminder. Balas "iya" untuk simpan, atau "batal" untuk membatalkan.\n\n` +
-        `*Kelola reminder aktif*\n` +
-        `• "reminderku apa aja?"\n` +
-        `• "ubah reminder UAS jadi jam 7 pagi"\n` +
+    return `*Bantuan Reminder Pribadi*\n\n` +
+        `Kamu bisa pakai bahasa santai. Aku akan tanya lanjut kalau tanggal, jam, atau AM/PM masih ambigu.\n\n` +
+        `*Bikin reminder*\n` +
+        `• "ingatkan aku 5 menit lagi untuk bangun"\n` +
+        `• "besok jam 8 pagi ada UAS, standar"\n` +
+        `• "tanggal 10 jam 9 pagi ada UAS, 1 hari sebelumnya"\n` +
+        `• "hari ini jam 12.30 stop main hp, tepat waktu"\n\n` +
+        `*Kalau aku tanya mau diingetin kapan*\n` +
+        `• "standar" / "pakai itu" / "terserah"\n` +
+        `• "tepat waktu"\n` +
+        `• "5 menit sebelumnya"\n` +
+        `• "di jam 9:35"\n` +
+        `• "malam sebelumnya jam 8"\n\n` +
+        `*Kalau jamnya ambigu*\n` +
+        `• "ingetin aku 7:12 untuk bangun" -> aku tanya pagi/siang/sore/malam\n` +
+        `• "ingetin aku 7:12 malam ini untuk bangun" -> langsung dipahami malam ini\n\n` +
+        `*Lihat dan hapus reminder*\n` +
+        `• "ada reminder apa?"\n` +
         `• "hapus reminder UAS"\n` +
-        `• "tunda 10 menit"\n\n` +
-        `*Reminder berulang*\n` +
-        `• "ingatkan aku tiap hari jam 8 malam minum obat"\n` +
-        `• "ingatkan aku setiap minggu jam 7 pagi latihan"\n\n` +
-        `Catatan: fitur reminder ini cuma aktif di chat pribadi dan memakai waktu WITA.`;
+        `• "hapus reminder" -> aku tanya ID atau semua\n` +
+        `• "hapus semua reminder"\n\n` +
+        `*Lainnya*\n` +
+        `• "tunda 10 menit"\n` +
+        `• "ingatkan aku tiap hari jam 8 malam minum obat"\n\n` +
+        `Catatan: khusus chat pribadi, owner whitelist, waktu WITA.`;
 }
 
 async function askForMissingReminderInfo(sock, from, key, session) {

@@ -8,14 +8,17 @@ const {
 const { isOwner } = require('../utils/owner');
 
 function usageText() {
-    return `*REMINDER*\n\n` +
+    return `*REMINDER MANUAL*\n\n` +
+        `Cara utama: chat natural di private chat.\n` +
+        `Contoh: "ingatkan aku 5 menit lagi untuk bangun"\n\n` +
+        `Command backup:\n` +
         `• *.reminder add 30m latihan maimai*\n` +
         `• *.reminder add 2h cek stamina*\n` +
         `• *.reminder add besok 19:30 main cab*\n` +
         `• *.reminder add 2026-07-09 19:30 booking mesin*\n` +
         `• *.reminder list*\n` +
         `• *.reminder delete [ID]*\n\n` +
-        `_Waktu ditampilkan dalam WITA._`;
+        `_Reminder natural tetap eksklusif owner dan chat pribadi. Waktu WITA._`;
 }
 
 module.exports = {

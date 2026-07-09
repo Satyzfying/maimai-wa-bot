@@ -191,11 +191,14 @@ function extractEventMessage(text) {
         .replace(/\b(?:tolong|pls|please)\b/gi, ' ')
         .replace(/\b(?:set|buat|bikin|pasang)\s+(?:reminder|pengingat)\b/gi, ' ')
         .replace(/\b(?:reminder|remind|ingatkan|ingetin|ingetim|ingat|jadwalin|jadwalkan)\s+(?:aku|saya|gua|gue|gw|ku)?\b/gi, ' ')
+        .replace(/\b(?:untuk|buat|agar|supaya)\b/gi, ' ')
         .replace(/\b(?:di|pada)?\s*(?:tanggal|tgl)\s*\d{1,2}(?:[-/\s]+\d{1,2})?(?:[-/\s]+\d{4})?\b/gi, ' ')
         .replace(/\b(?:besok|lusa|hari ini|hariini)\b/gi, ' ')
-        .replace(/\b(?:(?:jam|pukul|pk|pkl)\s*)?\d{1,2}(?:[.:]\d{1,2})?\s*(?:pagi|siang|sore|malam|am|pm|wita)\b/gi, ' ')
-        .replace(/\b\d+\s*(?:hari|jam|menit|mnt|min|m)\s*(?:sebelumnya|sebelum|sebelom)?\b/gi, ' ')
+        .replace(/\b(?:di|pada|pas)?\s*(?:jam|pukul|pk|pkl)\s*\d{1,2}(?:[.:]\d{1,2})?\s*(?:pagi|siang|sore|malam|am|pm|wita)?\b/gi, ' ')
+        .replace(/\b\d{1,2}(?:[.:]\d{1,2})\s*(?:pagi|siang|sore|malam|am|pm|wita)?\b/gi, ' ')
+        .replace(/\b\d+\s*(?:hari|jam|menit|mnt|min|m|detik|dtk|sec|s)\s*(?:lagi|sebelumnya|sebelum|sebelom)?\b/gi, ' ')
         .replace(/\b(?:sebelumnya|sebelum)\b/gi, ' ')
+        .replace(/\blagi\b/gi, ' ')
         .replace(/\b(?:setengah jam|seperempat jam|sejam|sehari)\b/gi, ' ')
         .replace(/[,.;]+/g, ' ')
         .replace(/\s+/g, ' ')
@@ -219,12 +222,18 @@ function parseOffsets(text, options = {}) {
     const includeDefault = options.includeDefault !== false;
     const offsets = [];
     const seen = new Set();
-    const matches = text.matchAll(/\b(\d+)\s*(hari|jam|menit|mnt|min|m)\s*(?:sebelumnya|sebelum|sebelom)?\b/gi);
+    const matches = text.matchAll(/\b(\d+)\s*(hari|jam|menit|mnt|min|m|detik|dtk|sec|s)\s*(?:sebelumnya|sebelum|sebelom)?\b/gi);
 
     for (const match of matches) {
         const value = Number(match[1]);
         const unit = match[2].toLowerCase();
-        const minutes = unit === 'hari' ? value * 24 * 60 : unit === 'jam' ? value * 60 : value;
+        const minutes = unit === 'hari'
+            ? value * 24 * 60
+            : unit === 'jam'
+                ? value * 60
+                : ['detik', 'dtk', 'sec', 's'].includes(unit)
+                    ? value / 60
+                    : value;
         if (minutes <= 0 || seen.has(minutes)) continue;
 
         seen.add(minutes);
@@ -234,7 +243,9 @@ function parseOffsets(text, options = {}) {
                 ? `${value} hari sebelumnya`
                 : unit === 'jam'
                     ? `${value} jam sebelumnya`
-                    : `${value} menit sebelumnya`
+                    : ['detik', 'dtk', 'sec', 's'].includes(unit)
+                        ? `${value} detik sebelumnya`
+                        : `${value} menit sebelumnya`
         });
     }
 
@@ -272,10 +283,45 @@ function stripEventDateTime(text) {
 
 function offsetLabelFromDate(remindAt, eventAt) {
     const diffMinutes = Math.round((eventAt.getTime() - remindAt.getTime()) / 60000);
-    if (diffMinutes <= 0) return 'di waktu yang dipilih';
+    if (diffMinutes <= 0) return 'tepat waktu';
     if (diffMinutes % (24 * 60) === 0) return `${diffMinutes / (24 * 60)} hari sebelumnya`;
     if (diffMinutes % 60 === 0) return `${diffMinutes / 60} jam sebelumnya`;
     return `${diffMinutes} menit sebelumnya`;
+}
+
+function offsetLabelFromMinutes(minutes) {
+    if (minutes <= 0) return 'tepat waktu';
+    if (minutes < 1) return `${Math.round(minutes * 60)} detik sebelumnya`;
+    if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)} hari sebelumnya`;
+    if (minutes % 60 === 0) return `${minutes / 60} jam sebelumnya`;
+    return `${minutes} menit sebelumnya`;
+}
+
+function parseDelay(text) {
+    const normalized = normalizeText(text);
+    const match = normalized.match(/\b(\d+)\s*(hari|jam|menit|mnt|min|m|detik|dtk|sec|s)\s+lagi\b/i);
+    if (!match) return null;
+
+    const value = Number(match[1]);
+    const unit = match[2].toLowerCase();
+    const ms = unit === 'hari'
+        ? value * 24 * 60 * 60 * 1000
+        : unit === 'jam'
+            ? value * 60 * 60 * 1000
+            : ['detik', 'dtk', 'sec', 's'].includes(unit)
+                ? value * 1000
+                : value * 60 * 1000;
+
+    return {
+        ms,
+        label: unit === 'hari'
+            ? `${value} hari lagi`
+            : unit === 'jam'
+                ? `${value} jam lagi`
+                : ['detik', 'dtk', 'sec', 's'].includes(unit)
+                    ? `${value} detik lagi`
+                    : `${value} menit lagi`
+    };
 }
 
 function parseAbsoluteTimeCandidates(text) {
@@ -300,6 +346,11 @@ function parseAbsoluteTimeCandidates(text) {
     }
 
     for (const match of normalized.matchAll(/\b(?:jam|pukul|pk|pkl)\s*(\d{1,2})(?:[.:](\d{1,2}))?\s*(pagi|siang|sore|malam|am|pm|wita)?\b/gi)) {
+        const parsed = parseHour(match[0]);
+        if (parsed) candidates.push(parsed);
+    }
+
+    for (const match of normalized.matchAll(/\b(?:pas\s*)?(?:di\s*)?(\d{1,2})[.:](\d{1,2})\s*(pagi|siang|sore|malam|am|pm|wita)?\b/gi)) {
         const parsed = parseHour(match[0]);
         if (parsed) candidates.push(parsed);
     }
@@ -349,11 +400,11 @@ function parseAbsoluteReminderTimes(text, eventDateParts, eventTimeParts) {
                 timeParts.minute
             );
 
-            if (!previousDay && remindAt.getTime() >= eventAt.getTime()) {
+            if (!previousDay && remindAt.getTime() > eventAt.getTime()) {
                 remindAt = new Date(remindAt.getTime() - 24 * 60 * 60 * 1000);
             }
 
-            if (remindAt.getTime() <= Date.now() || remindAt.getTime() >= eventAt.getTime()) {
+            if (remindAt.getTime() <= Date.now() || remindAt.getTime() > eventAt.getTime()) {
                 return null;
             }
 
@@ -405,7 +456,10 @@ function buildReminderPlan({ dateParts, timeParts, eventMessage, offsets, absolu
     const chosenOffsets = offsets && offsets.length ? offsets : [];
     const countdownReminders = chosenOffsets
         .map(offset => ({
-            offset,
+            offset: {
+                ...offset,
+                label: offset.label || offsetLabelFromMinutes(offset.minutes)
+            },
             remindAt: new Date(eventAt.getTime() - offset.minutes * 60 * 1000)
         }))
         .filter(item => item.remindAt.getTime() > Date.now());
@@ -414,7 +468,7 @@ function buildReminderPlan({ dateParts, timeParts, eventMessage, offsets, absolu
             offset: { minutes: null, label: item.label },
             remindAt: item.remindAt
         }))
-        .filter(item => item.remindAt.getTime() > Date.now() && item.remindAt.getTime() < eventAt.getTime());
+        .filter(item => item.remindAt.getTime() > Date.now() && item.remindAt.getTime() <= eventAt.getTime());
     const reminders = [...countdownReminders, ...fixedTimeReminders]
         .sort((a, b) => a.remindAt.getTime() - b.remindAt.getTime());
 
@@ -481,18 +535,35 @@ function parseNaturalReminder(text) {
     const recurring = parseRecurringReminder(text);
     if (recurring) return recurring;
 
+    const delay = parseDelay(text);
+    if (delay && hasReminderIntent(text)) {
+        const remindAt = new Date(Date.now() + delay.ms);
+        return {
+            eventAt: remindAt,
+            eventMessage: extractEventMessage(text),
+            reminders: [{
+                offset: { minutes: 0, label: delay.label },
+                remindAt
+            }],
+            isDirectReminder: true
+        };
+    }
+
     const draft = parseReminderDraft(text);
     if (!draft || !draft.dateParts || !draft.timeParts) return null;
     return buildReminderPlan(draft);
 }
 
-function createRemindersFromPlan({ chatJid, creatorJid, eventAt, eventMessage, reminders }) {
+function createRemindersFromPlan({ chatJid, creatorJid, eventAt, eventMessage, reminders, isDirectReminder }) {
     if (!canAddReminders(creatorJid, reminders.length)) {
         throw new Error(`Gagal menyimpan. Batas maksimal ${MAX_REMINDERS_PER_USER} reminder aktif per pengguna akan terlampaui.`);
     }
 
     const created = reminders.map(item => {
-        const message = `Pengingat ${item.offset.label}: ${eventMessage}\nWaktu acara: ${formatDateTime(eventAt.toISOString())}`;
+        const label = item.offset.label || offsetLabelFromMinutes(item.offset.minutes || 0);
+        const message = isDirectReminder
+            ? `Pengingat: ${eventMessage}`
+            : `Pengingat ${label}: ${eventMessage}\nWaktu acara: ${formatDateTime(eventAt.toISOString())}`;
         return addReminder({
             chatJid,
             creatorJid,
@@ -505,7 +576,8 @@ function createRemindersFromPlan({ chatJid, creatorJid, eventAt, eventMessage, r
     return {
         eventAt,
         eventMessage,
-        created
+        created,
+        isDirectReminder: Boolean(isDirectReminder)
     };
 }
 
@@ -518,7 +590,8 @@ function createNaturalReminders({ chatJid, creatorJid, text }) {
         creatorJid,
         eventAt: parsed.eventAt,
         eventMessage: parsed.eventMessage,
-        reminders: parsed.reminders
+        reminders: parsed.reminders,
+        isDirectReminder: parsed.isDirectReminder
     });
 }
 

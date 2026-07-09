@@ -21,10 +21,18 @@ function parseWitaIso(value) {
 
 function inferLabel(remindAt, eventAt) {
     const diffMinutes = Math.round((eventAt.getTime() - remindAt.getTime()) / 60000);
-    if (diffMinutes <= 0) return 'di waktu yang dipilih';
+    if (diffMinutes <= 0) return 'tepat waktu';
     if (diffMinutes % (24 * 60) === 0) return `${diffMinutes / (24 * 60)} hari sebelumnya`;
     if (diffMinutes % 60 === 0) return `${diffMinutes / 60} jam sebelumnya`;
     return `${diffMinutes} menit sebelumnya`;
+}
+
+function labelFromMinutes(minutes) {
+    if (minutes <= 0) return 'tepat waktu';
+    if (minutes < 1) return `${Math.round(minutes * 60)} detik sebelumnya`;
+    if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)} hari sebelumnya`;
+    if (minutes % 60 === 0) return `${minutes / 60} jam sebelumnya`;
+    return `${minutes} menit sebelumnya`;
 }
 
 function schema() {
@@ -163,6 +171,7 @@ function buildPrompt(text, pendingSession) {
         `Untuk nilai kosong pakai null, reminders pakai array kosong.\n\n` +
         `Pahami typo dan variasi: ingetim, ingetin, ingatin, ingatkan, ingetin aku, remind, reminder, jadwalin, jadwalkan.\n` +
         `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA, tanggal 10 = tanggal 10 terdekat.\n` +
+        `Jika user bilang "5 menit lagi", "1 jam lagi", atau "10 detik lagi", itu direct reminder. Set event_datetime ke waktu sekarang + durasi itu, dan buat satu reminders fixed_time di datetime yang sama.\n` +
         `Kalau user memberi reminder fixed-time, gunakan reminders[].type="fixed_time" dan datetime absolut WITA.\n` +
         `Kalau user memberi countdown, gunakan reminders[].type="relative" dan minutes_before.\n` +
         `Pahami unit waktu countdown seperti detik, menit, jam, hari, minggu, atau bulan (misal: "3 jam lagi", "20 detik lagi", "1 bulan lagi"). Konversikan semuanya ke dalam 'minutes_before' (atau hitung datetime absolut secara presisi jika di luar menit).\n` +
@@ -273,13 +282,7 @@ function aiResultToPlan(result) {
                 reminders.push({
                     offset: {
                         minutes,
-                        label: minutes === 0
-                            ? 'tepat waktu'
-                            : minutes % (24 * 60) === 0
-                                ? `${minutes / (24 * 60)} hari sebelumnya`
-                                : minutes % 60 === 0
-                                    ? `${minutes / 60} jam sebelumnya`
-                                    : `${minutes} menit sebelumnya`
+                        label: labelFromMinutes(minutes)
                     },
                     remindAt,
                     repeat: result.repeat || null
@@ -287,7 +290,7 @@ function aiResultToPlan(result) {
             }
         } else if (reminder.type === 'fixed_time' && reminder.datetime) {
             const remindAt = parseWitaIso(reminder.datetime);
-            if (remindAt && remindAt.getTime() > Date.now() && remindAt.getTime() < eventAt.getTime()) {
+            if (remindAt && remindAt.getTime() > Date.now() && remindAt.getTime() <= eventAt.getTime()) {
                 reminders.push({
                     offset: { minutes: null, label: inferLabel(remindAt, eventAt) },
                     remindAt,

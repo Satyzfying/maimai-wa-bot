@@ -70,6 +70,10 @@ function isDefaultOffsetAnswer(text) {
     return /\b(standar|default|iya|ya|boleh|oke|ok|sip|gas|bebas|terserah|yang tadi|pakai itu|pake itu|pakai aja|pake aja|ikutin aja|rekomendasi)\b/i.test(text);
 }
 
+function isExactReminderAnswer(text) {
+    return /\b(tepat waktu|pas waktunya|pas di jam(?:nya| acara(?:nya)?)?|saat mulai|waktu acara)\b/i.test(text);
+}
+
 function isCancelAnswer(text) {
     return /\b(batal|cancel|ga jadi|nggak jadi|tidak jadi)\b/i.test(text);
 }
@@ -116,6 +120,10 @@ function normalizeAiPendingEvent(aiResult, text, pendingSession) {
     };
 }
 
+function isDirectReminderText(text) {
+    return /\b\d+\s*(?:hari|jam|menit|mnt|min|m|detik|dtk|sec|s)\s+lagi\b/i.test(text);
+}
+
 function cleanupExpiredPending() {
     const now = Date.now();
     for (const [key, session] of pendingReminderSessions.entries()) {
@@ -125,24 +133,52 @@ function cleanupExpiredPending() {
     }
 }
 
+function formatReminderDateTime(value) {
+    const date = new Date(value);
+    const hasSeconds = date.getUTCSeconds() !== 0;
+    return date.toLocaleString('id-ID', {
+        timeZone: 'Asia/Makassar',
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        ...(hasSeconds ? { second: '2-digit' } : {})
+    });
+}
+
 function buildNaturalReminderResponse(naturalReminder) {
+    if (naturalReminder.isDirectReminder) {
+        let responseText = `Siap, aku set reminder:\n`;
+        responseText += `*${naturalReminder.eventMessage}*\n`;
+        responseText += `Waktu reminder: ${formatReminderDateTime(naturalReminder.created[0].remindAt)}\n`;
+        responseText += `ID: *${naturalReminder.created[0].id}*`;
+        return responseText;
+    }
+
     let responseText = `Siap, aku set ${naturalReminder.created.length} reminder untuk:\n`;
     responseText += `*${naturalReminder.eventMessage}*\n`;
     responseText += `Waktu acara: ${formatDateTime(naturalReminder.eventAt.toISOString())}\n\n`;
     responseText += naturalReminder.created
-        .map(reminder => `• ${formatDateTime(reminder.remindAt)} (*${reminder.id}*)`)
+        .map(reminder => `• ${formatReminderDateTime(reminder.remindAt)} (*${reminder.id}*)`)
         .join('\n');
     return responseText;
 }
 
 function buildReminderPlanSummary(plan) {
     let responseText = `Aku tangkap begini:\n`;
-    responseText += `Acara: *${plan.eventMessage}*\n`;
-    responseText += `Waktu: ${formatDateTime(plan.eventAt.toISOString())} WITA\n`;
-    responseText += `Reminder:\n`;
-    responseText += plan.reminders
-        .map(item => `• ${formatDateTime(item.remindAt.toISOString())}${item.repeat ? ` (${item.repeat.label})` : ''}`)
-        .join('\n');
+    if (plan.isDirectReminder) {
+        responseText += `Reminder: *${plan.eventMessage}*\n`;
+        responseText += `Waktu: ${formatReminderDateTime(plan.reminders[0].remindAt.toISOString())} WITA`;
+    } else {
+        responseText += `Acara: *${plan.eventMessage}*\n`;
+        responseText += `Waktu acara: ${formatDateTime(plan.eventAt.toISOString())} WITA\n`;
+        responseText += `Reminder:\n`;
+        responseText += plan.reminders
+            .map(item => `• ${formatReminderDateTime(item.remindAt.toISOString())}${item.repeat ? ` (${item.repeat.label})` : ''}`)
+            .join('\n');
+    }
     responseText += `\n\nKalau sudah benar, balas *iya*. Kalau mau batal, balas *batal*.`;
     return responseText;
 }
@@ -151,13 +187,15 @@ function reminderExampleText(reason) {
     let response = reason ? `${reason}\n\n` : '';
     response += `Contoh yang bisa aku pahami:\n`;
     response += `• tolong reminder tanggal 10 jam 9 pagi ada UAS\n`;
+    response += `• ingatkan aku 5 menit lagi untuk bangun\n`;
     response += `• ingatkan aku besok jam 19:00 ada latihan, 1 hari dan 3 jam sebelumnya\n`;
     response += `• tolong reminder 10/07 jam 9 pagi ada UAS, ingetin jam 6 pagi\n\n`;
     response += `Kalau aku sudah tanya pilihan reminder, kamu bisa jawab:\n`;
     response += `• iya boleh pakai yang tadi\n`;
+    response += `• tepat waktu\n`;
     response += `• jam 6 pagi\n`;
-    response += `• malam sebelumnya jam 8\n`;
-    response += `• 2 hari, 6 jam, setengah jam sebelumnya`;
+    response += `• di jam 9:35\n`;
+    response += `• 5 menit sebelumnya`;
     return response;
 }
 
@@ -169,12 +207,14 @@ function reminderFeatureText() {
     return `Aku punya fitur reminder pribadi yang bisa kamu pakai lewat chat natural.\n\n` +
         `*Bikin reminder sekali jalan*\n` +
         `• "tolong reminder tanggal 10 jam 9 pagi ada UAS, 1 hari sebelumnya"\n` +
-        `• "ingatkan aku besok jam 19:00 ada latihan, 3 jam sebelumnya"\n\n` +
+        `• "ingatkan aku besok jam 19:00 ada latihan, 3 jam sebelumnya"\n` +
+        `• "ingatkan aku 5 menit lagi untuk bangun"\n\n` +
         `*Kalau informasinya kurang, aku akan tanya lanjut*\n` +
         `Misalnya kamu tulis "tolong reminder tanggal 10 ada UAS", aku akan tanya jam acaranya, lalu tanya kapan kamu mau diingetin.\n\n` +
         `*Pilihan waktu reminder fleksibel*\n` +
         `• Countdown: "1 hari, 12 jam, 30 menit sebelumnya"\n` +
         `• Jam tertentu: "jam 6 pagi"\n` +
+        `• Tepat saat acara: "tepat waktu"\n` +
         `• Hari sebelumnya: "malam sebelumnya jam 8"\n` +
         `• Paket standar: 1 hari, 12 jam, 6 jam, 3 jam, 1 jam, 30 menit sebelumnya\n\n` +
         `*Aku konfirmasi dulu sebelum menyimpan*\n` +
@@ -209,7 +249,7 @@ async function askForMissingReminderInfo(sock, from, key, session) {
     }
 
     await sock.sendMessage(from, {
-        text: `Mau aku ingetin kapan aja?\n\nBiasanya aku pakai ini:\n${defaultOffsetText()}\n\nKalau cocok, balas aja seperti *iya boleh*, *pakai itu*, atau *terserah*.\nKalau mau jam tertentu, jawab seperti *jam 6 pagi* atau *malam sebelumnya jam 8*.\nKalau mau countdown custom, tulis seperti *2 hari, 6 jam, setengah jam sebelumnya*.`
+        text: `Mau aku ingetin kapan?\n\nPilihan cepat:\n${defaultOffsetText()}\n• tepat waktu\n\nKalau cocok pakai paket standar, balas *pakai itu* atau *terserah*.\nKalau mau jam tertentu, jawab seperti *jam 6 pagi*, *di jam 9:35*, atau *malam sebelumnya jam 8*.\nKalau mau countdown custom, tulis seperti *5 menit sebelumnya* atau *2 hari, 6 jam sebelumnya*.`
     });
 }
 
@@ -233,7 +273,8 @@ async function saveConfirmedReminder(sock, from, senderJid, key, session) {
         reminders: session.plan.reminders.map(item => ({
             ...item,
             remindAt: new Date(item.remindAt)
-        }))
+        })),
+        isDirectReminder: session.plan.isDirectReminder
     });
 
     pendingReminderSessions.delete(key);
@@ -254,7 +295,7 @@ function formatReminderList(reminders) {
 
     let responseText = `Reminder aktif:\n\n`;
     for (const reminder of reminders) {
-        responseText += `• *${reminder.id}* - ${formatDateTime(reminder.remindAt)}\n`;
+        responseText += `• *${reminder.id}* - ${formatReminderDateTime(reminder.remindAt)}\n`;
         responseText += `  ${reminder.message.replace(/\n/g, ' | ')}\n`;
         if (reminder.repeat) responseText += `  Berulang: ${reminder.repeat.label || reminder.repeat.unit}\n`;
         responseText += `\n`;
@@ -436,6 +477,10 @@ async function handleAiReminderIntent(sock, from, senderJid, text, aiResult, pen
 
         const plan = aiResultToPlan(aiResult);
         if (plan) {
+            if (isDirectReminderText(text)) {
+                plan.isDirectReminder = true;
+            }
+
             await askForConfirmation(sock, from, key, {
                 ...(pendingSession || {}),
                 eventMessage: plan.eventMessage,
@@ -480,6 +525,15 @@ async function handlePendingReminder(sock, from, senderJid, text) {
         return true;
     }
 
+    const directPendingPlan = parseNaturalReminder(`ingatkan aku ${text} untuk ${session.eventMessage || 'acara'}`);
+    if (directPendingPlan?.isDirectReminder) {
+        await askForConfirmation(sock, from, key, {
+            ...session,
+            updatedAt: Date.now()
+        }, directPendingPlan);
+        return true;
+    }
+
     const dateParts = parseEventDate(text);
     if (dateParts) session.dateParts = dateParts;
 
@@ -505,6 +559,9 @@ async function handlePendingReminder(sock, from, senderJid, text) {
     } else if (absoluteReminders.length) {
         session.absoluteReminders = absoluteReminders;
         session.offsets = [];
+    } else if (session.dateParts && session.timeParts && isExactReminderAnswer(text)) {
+        session.offsets = [{ minutes: 0, label: 'tepat waktu' }];
+        session.absoluteReminders = [];
     } else if (session.dateParts && session.timeParts && isDefaultOffsetAnswer(text)) {
         session.offsets = DEFAULT_OFFSETS;
         session.absoluteReminders = [];
@@ -641,6 +698,15 @@ async function handleMessage(sock, m, otps) {
                 return;
             }
 
+            const parsed = parseNaturalReminder(text);
+            if (parsed) {
+                await askForConfirmation(sock, from, getPendingKey(from, senderJid), {
+                    ...parsed,
+                    updatedAt: Date.now()
+                }, parsed);
+                return;
+            }
+
             if (draft && !draft.dateParts && !draft.timeParts && !draft.offsets.length && !draft.absoluteReminders.length) {
                 await sock.sendMessage(from, {
                     text: reminderExampleText('Aku paham kamu mau bikin reminder, tapi format tanggal/jamnya belum kebaca.')
@@ -655,15 +721,6 @@ async function handleMessage(sock, m, otps) {
                     absoluteReminders: draft.absoluteReminders || [],
                     updatedAt: Date.now()
                 });
-                return;
-            }
-
-            const parsed = parseNaturalReminder(text);
-            if (parsed) {
-                await askForConfirmation(sock, from, getPendingKey(from, senderJid), {
-                    ...parsed,
-                    updatedAt: Date.now()
-                }, parsed);
                 return;
             }
 

@@ -171,6 +171,8 @@ function buildPrompt(text, pendingSession) {
         `Untuk nilai kosong pakai null, reminders pakai array kosong.\n\n` +
         `Pahami typo dan variasi: ingetim, ingetin, ingatin, ingatkan, ingetin aku, remind, reminder, jadwalin, jadwalkan.\n` +
         `Pahami waktu natural: setengah 5 sore = 16:30, jam 3 sore = 15:00, besok = tanggal besok WITA, tanggal 10 = tanggal 10 terdekat.\n` +
+        `Kalau user menyebut jam 1-12 tanpa pagi/siang/sore/malam/AM/PM, jangan menebak. Set needs_clarification=true dan tanya apakah maksudnya pagi, siang, sore, atau malam.\n` +
+        `Frasa "malam ini", "sore ini", "siang ini", dan "pagi ini" berarti hari ini dengan periode waktu tersebut.\n` +
         `Jika user bilang "5 menit lagi", "1 jam lagi", atau "10 detik lagi", itu direct reminder. Set event_datetime ke waktu sekarang + durasi itu, dan buat satu reminders fixed_time di datetime yang sama.\n` +
         `Kalau user memberi reminder fixed-time, gunakan reminders[].type="fixed_time" dan datetime absolut WITA.\n` +
         `Kalau user memberi countdown, gunakan reminders[].type="relative" dan minutes_before.\n` +

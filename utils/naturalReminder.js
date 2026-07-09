@@ -92,6 +92,42 @@ function normalizeText(text) {
         .trim();
 }
 
+function ambiguousTimeCandidate(text) {
+    const normalized = normalizeText(text);
+    const match = normalized.match(/\b(?:(?:jam|pukul|pk|pkl)\s*)?(\d{1,2})(?:[.:](\d{1,2}))\s*(?!pagi|siang|sore|malam|am|pm|wita)\b/i)
+        || normalized.match(/\b(?:jam|pukul|pk|pkl)\s*(\d{1,2})\s*(?!pagi|siang|sore|malam|am|pm|wita)\b/i);
+
+    if (!match) return null;
+
+    const hour = Number(match[1]);
+    const minute = Number(match[2] || 0);
+    if (hour < 1 || hour > 12 || minute > 59) return null;
+
+    return { hour, minute };
+}
+
+function hasAmbiguousTime(text) {
+    return Boolean(ambiguousTimeCandidate(text));
+}
+
+function applyTimePeriod(timeParts, periodText) {
+    if (!timeParts) return null;
+    const period = normalizeText(periodText);
+    let hour = timeParts.hour;
+
+    if (/\bpagi\b|\bam\b/i.test(period)) {
+        if (hour === 12) hour = 0;
+    } else if (/\bsiang\b/i.test(period)) {
+        if (hour < 11) hour += 12;
+    } else if (/\bsore\b|\bmalam\b|\bpm\b/i.test(period)) {
+        if (hour < 12) hour += 12;
+    } else {
+        return null;
+    }
+
+    return { hour, minute: timeParts.minute };
+}
+
 function parseHour(text) {
     const prefixPeriodMatch = text.match(/\b(pagi|siang|sore|malam)\s*(?:jam|pukul|pk|pkl)?\s*(\d{1,2})(?:[.:](\d{1,2}))?\b/i);
     const candidates = prefixPeriodMatch
@@ -135,7 +171,7 @@ function parseEventDate(text) {
         return addDaysInWita(now, 2);
     }
 
-    if (/\bhari ini\b|\bhariini\b/i.test(text)) {
+    if (/\bhari ini\b|\bhariini\b|\b(?:pagi|siang|sore|malam) ini\b/i.test(text)) {
         return now;
     }
 
@@ -434,6 +470,7 @@ function parseReminderDraft(text) {
     return {
         dateParts,
         timeParts,
+        ambiguousTimeParts: ambiguousTimeCandidate(normalized),
         eventMessage: extractEventMessage(text),
         offsets,
         absoluteReminders: []
@@ -605,6 +642,8 @@ module.exports = {
     parseEventDate,
     parseAbsoluteReminderTimes,
     parseHour,
+    hasAmbiguousTime,
+    applyTimePeriod,
     parseOffsets,
     createNaturalReminders
 };

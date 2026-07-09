@@ -7,6 +7,8 @@ const {
     parseEventDate,
     parseAbsoluteReminderTimes,
     parseHour,
+    hasAmbiguousTime,
+    applyTimePeriod,
     parseNaturalReminder,
     parseOffsets,
     parseRecurringReminder,
@@ -233,6 +235,14 @@ function reminderFeatureText() {
 async function askForMissingReminderInfo(sock, from, key, session) {
     session.updatedAt = Date.now();
     pendingReminderSessions.set(key, session);
+
+    if (session.needsTimePeriod && session.ambiguousTimeParts) {
+        const minute = String(session.ambiguousTimeParts.minute).padStart(2, '0');
+        await sock.sendMessage(from, {
+            text: `Jam ${session.ambiguousTimeParts.hour}:${minute} itu maksudnya pagi, siang, sore, atau malam?`
+        });
+        return;
+    }
 
     if (!session.dateParts) {
         await sock.sendMessage(from, {
@@ -534,6 +544,20 @@ async function handlePendingReminder(sock, from, senderJid, text) {
         return true;
     }
 
+    if (session.needsTimePeriod && session.ambiguousTimeParts) {
+        const timeWithPeriod = applyTimePeriod(session.ambiguousTimeParts, text);
+        if (!timeWithPeriod) {
+            await askForMissingReminderInfo(sock, from, key, session);
+            return true;
+        }
+
+        session.timeParts = timeWithPeriod;
+        session.needsTimePeriod = false;
+        delete session.ambiguousTimeParts;
+        await askForMissingReminderInfo(sock, from, key, session);
+        return true;
+    }
+
     const dateParts = parseEventDate(text);
     if (dateParts) session.dateParts = dateParts;
 
@@ -675,6 +699,17 @@ async function handleMessage(sock, m, otps) {
             return;
         }
 
+        const initialDraft = parseReminderDraft(text);
+        if (initialDraft?.ambiguousTimeParts && hasAmbiguousTime(text)) {
+            await askForMissingReminderInfo(sock, from, getPendingKey(from, senderJid), {
+                ...initialDraft,
+                timeParts: null,
+                needsTimePeriod: true,
+                updatedAt: Date.now()
+            });
+            return;
+        }
+
         const aiResult = await getAiReminderIntent(text, null);
         if (await handleAiReminderIntent(sock, from, senderJid, text, aiResult)) {
             return;
@@ -687,7 +722,7 @@ async function handleMessage(sock, m, otps) {
         let naturalReminder = null;
 
         try {
-            const draft = parseReminderDraft(text);
+            const draft = initialDraft;
             const recurring = parseRecurringReminder(text);
 
             if (recurring) {
